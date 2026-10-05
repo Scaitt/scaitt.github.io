@@ -113,64 +113,6 @@
 <script type="text/babel" data-presets="react">
 const { useState, useRef, useMemo, useEffect, useCallback } = React;
 
-const GH_OWNER = 'julialtisent10-bit';
-const GH_DATA_REPO = 'scaitt-stock-data';
-const GH_TOKEN = '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';
-const GH_API_BASE = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_DATA_REPO + '/contents/';
-const POLL_MS = 20000;
-
-function b64EncodeUtf8(str) {
-  return window.btoa(unescape(encodeURIComponent(str)));
-}
-function b64DecodeUtf8(str) {
-  return decodeURIComponent(escape(window.atob(str.replace(/\n/g, ''))));
-}
-
-async function ghGetFile(path) {
-  const res = await fetch(GH_API_BASE + path, {
-    headers: { Authorization: 'token ' + GH_TOKEN, Accept: 'application/vnd.github+json' }
-  });
-  if (res.status === 404) return { data: null, sha: null };
-  if (!res.ok) throw new Error('GitHub read failed: ' + res.status);
-  const json = await res.json();
-  const text = b64DecodeUtf8(json.content);
-  return { data: JSON.parse(text), sha: json.sha };
-}
-
-async function ghPutFile(path, dataObj, sha, message) {
-  const body = { message: message || ('Update ' + path), content: b64EncodeUtf8(JSON.stringify(dataObj, null, 2)) };
-  if (sha) body.sha = sha;
-  const res = await fetch(GH_API_BASE + path, {
-    method: 'PUT',
-    headers: { Authorization: 'token ' + GH_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    const err = new Error('GitHub write failed: ' + res.status + ' ' + t);
-    err.status = res.status;
-    throw err;
-  }
-  const json = await res.json();
-  return json.content.sha;
-}
-
-// Escribe un archivo reintentando una vez si el sha quedó desactualizado (409/422 por cambio concurrente).
-async function ghPutFileSafe(path, dataObj, shaRef, message) {
-  try {
-    const newSha = await ghPutFile(path, dataObj, shaRef.current, message);
-    shaRef.current = newSha;
-  } catch (err) {
-    if (err.status === 409 || err.status === 422) {
-      const fresh = await ghGetFile(path);
-      const newSha = await ghPutFile(path, dataObj, fresh.sha, message);
-      shaRef.current = newSha;
-    } else {
-      throw err;
-    }
-  }
-}
-
 const CENTROS = ['Martorell', 'Baleares', 'CIM Vallés', 'Lleida', 'Manresa'];
 
 const BASE_USERS = [
@@ -186,6 +128,31 @@ async function sha256Hex(text) {
   const enc = new TextEncoder().encode(text);
   const digest = await window.crypto.subtle.digest('SHA-256', enc);
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function loadLocal(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (err) {
+    return fallback;
+  }
+}
+
+function saveLocal(key, value) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (err) { /* almacenamiento no disponible */ }
+}
+
+const USERS_KEY = 'scaitt-users';
+
+function loadUsers() {
+  const stored = loadLocal(USERS_KEY, null);
+  if (stored && Array.isArray(stored) && stored.length > 0) return stored;
+  return BASE_USERS;
+}
+
+function saveUsers(list) {
+  saveLocal(USERS_KEY, list);
 }
 
 const TABS = [
@@ -478,7 +445,7 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
   );
 }
 
-function UploadTab({ stock, fileName, onUpload, onClear, onRefresh }) {
+function UploadTab({ stock, fileName, onUpload, onClear }) {
   const [error, setError] = useState('');
 
   const onFile = (e) => {
@@ -504,12 +471,9 @@ function UploadTab({ stock, fileName, onUpload, onClear, onRefresh }) {
 
   return (
     <div className="card">
-      <div className="toolbar">
-        <h2 style={{ margin: 0 }}>Cargar stock teórico</h2>
-        <button className="btn btn-outline btn-small" onClick={onRefresh}>Actualizar ahora</button>
-      </div>
+      <h2>Cargar stock teórico</h2>
       <p className="muted" style={{ marginTop: -8 }}>
-        Columnas esperadas: Centro, Ubicación, Referencia, Descripción, Cantidad Teórica. Admite archivos .xlsx, .xls o .csv exportados desde Excel. Lo que cargues aquí se verá en los demás dispositivos de este centro en unos segundos.
+        Columnas esperadas: Centro, Ubicación, Referencia, Descripción, Cantidad Teórica. Admite archivos .xlsx, .xls o .csv exportados desde Excel.
       </p>
       <input type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/octet-stream" onChange={onFile} />
       {error && <div className="error-box" style={{ marginTop: 12 }}>{error}</div>}
@@ -761,9 +725,9 @@ function SettingsTab({ user, centro, setCentro, isAdmin, onReset, onLogout }) {
         </div>
       </div>
       <p className="muted">Usuario conectado: <strong>{user.usuario}</strong>{isAdmin && <React.Fragment> &middot; <span className="badge" style={{ background: 'var(--info-bg)', color: 'var(--info-fg)' }}>ADMIN</span></React.Fragment>}</p>
-      <p><span className="storage-pill on">Stock compartido activo</span></p>
+      <p><span className="storage-pill on">Guardado en este navegador</span></p>
       <p className="muted" style={{ fontSize: 12.5 }}>
-        El stock teórico se sincroniza entre dispositivos del mismo centro (se actualiza solo cada {Math.round(POLL_MS / 1000)} segundos, o al instante en el dispositivo donde lo cargas). Las lecturas del escáner se guardan solo en este dispositivo.
+        El stock teórico y las lecturas se guardan en este dispositivo/navegador, por centro. Si usas otro ordenador o tablet, o borras los datos de navegación, no verás lo cargado aquí.
       </p>
       <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
         <button className="btn btn-danger" onClick={onReset}>Borrar stock teórico y lecturas de este centro</button>
@@ -797,126 +761,72 @@ function App() {
   const [stock, setStock] = useState([]);
   const [fileName, setFileName] = useState('');
   const [scans, setScans] = useState([]);
-  const [users, setUsers] = useState(BASE_USERS);
-  const [connError, setConnError] = useState('');
-  const usersSha = useRef(null);
-  const stockSha = useRef(null);
-
-  // Usuarios: archivo compartido en el repositorio privado de GitHub, visible desde cualquier dispositivo.
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const { data, sha } = await ghGetFile('users.json');
-        if (data && Array.isArray(data.list) && data.list.length > 0) {
-          usersSha.current = sha;
-          if (active) setUsers(data.list);
-        } else {
-          const newSha = await ghPutFile('users.json', { list: BASE_USERS }, sha, 'Seed base users');
-          usersSha.current = newSha;
-        }
-      } catch (err) {
-        if (active) setConnError('No se pudo conectar con los usuarios compartidos. Usando lista local por defecto.');
-      }
-    })();
-    return () => { active = false; };
-  }, []);
-
-  const saveUsersList = useCallback((next) => {
-    setUsers(next);
-    ghPutFileSafe('users.json', { list: next }, usersSha, 'Update users')
-      .catch(() => setConnError('No se pudo guardar el cambio de usuarios.'));
-  }, []);
+  const [users, setUsers] = useState(() => loadUsers());
 
   const handleAddUser = useCallback((newUser) => {
-    setUsers((prev) => { const next = prev.concat([newUser]); saveUsersList(next); return next; });
-  }, [saveUsersList]);
+    setUsers((prev) => { const next = prev.concat([newUser]); saveUsers(next); return next; });
+  }, []);
 
   const handleUpdatePassword = useCallback((usuario, newPasswordHash) => {
     setUsers((prev) => {
       const next = prev.map((u) => (u.usuario === usuario ? Object.assign({}, u, { passwordHash: newPasswordHash }) : u));
-      saveUsersList(next);
+      saveUsers(next);
       return next;
     });
-  }, [saveUsersList]);
+  }, []);
 
   const handleDeleteUser = useCallback((usuario) => {
-    setUsers((prev) => { const next = prev.filter((u) => u.usuario !== usuario); saveUsersList(next); return next; });
-  }, [saveUsersList]);
+    setUsers((prev) => { const next = prev.filter((u) => u.usuario !== usuario); saveUsers(next); return next; });
+  }, []);
 
   const slug = centro ? slugify(centro) : null;
   const isAdmin = user && user.role === 'admin';
 
-  // Lecturas: solo en este dispositivo (localStorage), por centro.
   useEffect(() => {
-    if (!slug) { setScans([]); return; }
-    try {
-      const raw = window.localStorage.getItem('scaitt-scans-' + slug);
-      setScans(raw ? JSON.parse(raw) : []);
-    } catch (err) { setScans([]); }
+    if (!slug) { setStock([]); setFileName(''); setScans([]); return; }
+    const data = loadLocal('scaitt-centro-' + slug, { stock: [], fileName: '', scans: [] });
+    setStock(data.stock || []);
+    setFileName(data.fileName || '');
+    setScans(data.scans || []);
   }, [slug]);
 
-  const persistScans = useCallback((next) => {
+  const persist = useCallback((next) => {
     if (!slug) return;
-    try { window.localStorage.setItem('scaitt-scans-' + slug, JSON.stringify(next)); } catch (err) { /* no disponible */ }
+    saveLocal('scaitt-centro-' + slug, next);
   }, [slug]);
-
-  // Stock teórico: compartido por centro en el repositorio privado de GitHub (carga desde PC, visible en cualquier dispositivo).
-  const fetchStock = useCallback(async () => {
-    if (!slug) return;
-    try {
-      const { data, sha } = await ghGetFile(slug + '.json');
-      stockSha.current = sha;
-      setStock((data && data.stock) || []);
-      setFileName((data && data.fileName) || '');
-    } catch (err) {
-      setConnError('No se pudo sincronizar el stock teórico.');
-    }
-  }, [slug]);
-
-  useEffect(() => {
-    if (!slug) { setStock([]); setFileName(''); stockSha.current = null; return; }
-    stockSha.current = null;
-    fetchStock();
-    const interval = setInterval(fetchStock, POLL_MS);
-    return () => clearInterval(interval);
-  }, [slug, fetchStock]);
 
   const handleUpload = useCallback((rows, name) => {
-    if (!slug) return;
     setStock(rows); setFileName(name);
-    ghPutFileSafe(slug + '.json', { stock: rows, fileName: name, updatedAt: Date.now() }, stockSha, 'Update stock ' + slug)
-      .catch(() => setConnError('No se pudo guardar el stock cargado.'));
-  }, [slug]);
+    persist({ stock: rows, fileName: name, scans });
+  }, [persist, scans]);
 
   const handleClearStock = useCallback(() => {
-    if (!slug) return;
     setStock([]); setFileName('');
-    ghPutFileSafe(slug + '.json', { stock: [], fileName: '' }, stockSha, 'Clear stock ' + slug)
-      .catch(() => setConnError('No se pudo borrar el stock.'));
-  }, [slug]);
+    persist({ stock: [], fileName: '', scans });
+  }, [persist, scans]);
 
   const handleSaveScan = useCallback((rec) => {
-    if (!slug) return;
-    const full = Object.assign({ id: 's' + Date.now() + Math.random().toString(36).slice(2), centro: centro, ts: Date.now() }, rec);
-    setScans((prev) => { const next = [full].concat(prev); persistScans(next); return next; });
-  }, [slug, centro, persistScans]);
+    const full = Object.assign({ id: 's' + Date.now() + Math.random().toString(36).slice(2), centro, ts: Date.now() }, rec);
+    setScans((prev) => {
+      const next = [full].concat(prev);
+      persist({ stock, fileName, scans: next });
+      return next;
+    });
+  }, [persist, stock, fileName, centro]);
 
   const handleDeleteLastScan = useCallback(() => {
     setScans((prev) => {
       if (prev.length === 0) return prev;
       const next = prev.slice(1);
-      persistScans(next);
+      persist({ stock, fileName, scans: next });
       return next;
     });
-  }, [persistScans]);
+  }, [persist, stock, fileName]);
 
   const handleResetAll = useCallback(() => {
-    if (!slug) return;
     setStock([]); setFileName(''); setScans([]);
-    persistScans([]);
-    ghPutFileSafe(slug + '.json', { stock: [], fileName: '' }, stockSha, 'Reset stock ' + slug).catch(() => {});
-  }, [slug, persistScans]);
+    persist({ stock: [], fileName: '', scans: [] });
+  }, [persist]);
 
   if (!user) {
     return <LoginScreen users={users} onLogin={(u) => {
@@ -945,9 +855,8 @@ function App() {
         ))}
       </div>
       <div className="content">
-        {connError && <div className="error-box">{connError}</div>}
         {activeTab === 'scan' && <ScanTab scans={scans} onSave={handleSaveScan} onDeleteLast={handleDeleteLastScan} />}
-        {activeTab === 'upload' && <UploadTab stock={stock} fileName={fileName} onUpload={handleUpload} onClear={handleClearStock} onRefresh={fetchStock} />}
+        {activeTab === 'upload' && <UploadTab stock={stock} fileName={fileName} onUpload={handleUpload} onClear={handleClearStock} />}
         {activeTab === 'report' && <ReportTab stock={stock} scans={scans} centro={centro} />}
         {activeTab === 'users' && isAdmin && (
           <UsersTab
