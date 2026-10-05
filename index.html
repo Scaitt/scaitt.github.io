@@ -728,8 +728,25 @@ function SettingsTab({ user, centro, setCentro, isAdmin, onReset, onLogout }) {
 }
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [centro, setCentro] = useState(null);
+  const [user, setUser] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem('scaitt-session');
+      return raw ? JSON.parse(raw).user : null;
+    } catch (err) { return null; }
+  });
+  const [centro, setCentro] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem('scaitt-session');
+      return raw ? JSON.parse(raw).centro : null;
+    } catch (err) { return null; }
+  });
+
+  const persistSession = (nextUser, nextCentro) => {
+    try {
+      if (nextUser) window.localStorage.setItem('scaitt-session', JSON.stringify({ user: nextUser, centro: nextCentro }));
+      else window.localStorage.removeItem('scaitt-session');
+    } catch (err) { /* almacenamiento no disponible */ }
+  };
   const [activeTab, setActiveTab] = useState('scan');
   const [stock, setStock] = useState([]);
   const [fileName, setFileName] = useState('');
@@ -832,8 +849,11 @@ function App() {
 
   if (!user) {
     return <LoginScreen users={users} onLogin={(u) => {
-      setUser({ usuario: u.usuario, role: u.role });
-      setCentro(u.role === 'admin' ? CENTROS[0] : u.centro);
+      const nextUser = { usuario: u.usuario, role: u.role };
+      const nextCentro = u.role === 'admin' ? CENTROS[0] : u.centro;
+      setUser(nextUser);
+      setCentro(nextCentro);
+      persistSession(nextUser, nextCentro);
       setActiveTab('scan');
     }} />;
   }
@@ -866,8 +886,11 @@ function App() {
         )}
         {activeTab === 'settings' && (
           <SettingsTab
-            user={user} centro={centro} setCentro={setCentro} isAdmin={isAdmin}
-            onReset={handleResetAll} onLogout={() => { setUser(null); setCentro(null); }}
+            user={user} centro={centro}
+            setCentro={(c) => { setCentro(c); persistSession(user, c); }}
+            isAdmin={isAdmin}
+            onReset={handleResetAll}
+            onLogout={() => { setUser(null); setCentro(null); persistSession(null, null); }}
           />
         )}
       </div>
