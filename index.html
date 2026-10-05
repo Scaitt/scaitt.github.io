@@ -407,7 +407,7 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
             <label htmlFor="in-cant">3. Cantidad</label>
             <input id="in-cant" ref={refCantidad} value={cantidad}
               onChange={(e) => setCantidad(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); } }}
               placeholder="1" />
           </div>
         </div>
