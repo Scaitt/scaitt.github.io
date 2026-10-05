@@ -326,7 +326,7 @@ function LoginScreen({ users, onLogin }) {
 function ScanTab({ scans, onSave, onDeleteLast }) {
   const [ubicacion, setUbicacion] = useState('');
   const [referencia, setReferencia] = useState('');
-  const [cantidad, setCantidad] = useState('1');
+  const [cantidad, setCantidad] = useState('');
   const [flash, setFlash] = useState(false);
   const refUbicacion = useRef(null);
   const refReferencia = useRef(null);
@@ -351,12 +351,18 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
     } catch (err) { /* audio no soportado */ }
   };
 
+  const [saveError, setSaveError] = useState('');
+
   const save = () => {
-    if (!ubicacion.trim() || !referencia.trim()) return;
-    const qty = parseFloat(String(cantidad).replace(',', '.')) || 1;
+    if (!ubicacion.trim() || !referencia.trim()) {
+      setSaveError('Indica ubicación y referencia antes de guardar.');
+      return;
+    }
+    const qty = cantidad.trim() === '' ? 1 : (parseFloat(String(cantidad).replace(',', '.')) || 1);
+    setSaveError('');
     onSave({ ubicacion: ubicacion.trim(), referencia: referencia.trim(), cantidad: qty });
     setReferencia('');
-    setCantidad('1');
+    setCantidad('');
     setFlash(true);
     beep();
     clearTimeout(flashTimer.current);
@@ -391,7 +397,7 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
                 if (e.key === 'Enter') {
                   e.preventDefault();
                   if (referencia.trim()) {
-                    if (refCantidad.current) { refCantidad.current.focus(); refCantidad.current.select(); }
+                    if (refCantidad.current) refCantidad.current.focus();
                   }
                 }
               }}
@@ -401,10 +407,13 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
             <label htmlFor="in-cant">3. Cantidad</label>
             <input id="in-cant" ref={refCantidad} value={cantidad}
               onChange={(e) => setCantidad(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }} />
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }}
+              placeholder="1" />
           </div>
         </div>
+        {saveError && <div className="error-box" style={{ marginTop: 16 }}>{saveError}</div>}
         <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="btn btn-primary" onClick={save}>Guardar lectura</button>
           <button className="btn btn-outline" onClick={() => { setUbicacion(''); refUbicacion.current && refUbicacion.current.focus(); }}>
             Limpiar ubicación
           </button>
