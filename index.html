@@ -465,7 +465,7 @@ function UploadTab({ stock, fileName, onUpload, onClear }) {
       <p className="muted" style={{ marginTop: -8 }}>
         Columnas esperadas: Centro, Ubicación, Referencia, Descripción, Cantidad Teórica. Admite archivos .xlsx, .xls o .csv exportados desde Excel.
       </p>
-      <input type="file" accept=".xlsx,.xls,.csv" onChange={onFile} />
+      <input type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/octet-stream" onChange={onFile} />
       {error && <div className="error-box" style={{ marginTop: 12 }}>{error}</div>}
       {stock.length > 0 && (
         <React.Fragment>
