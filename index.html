@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>SCAITT Control de Stock</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #EEF1F2;
+    --surface: #FFFFFF;
+    --surface-2: #F6F7F8;
+    --fg: #10171D;
+    --muted: #5C6B73;
+    --border: #D7DEE1;
+    --accent: #0B6E6E;
+    --accent-fg: #FFFFFF;
+    --brand-blue: #1456D6;
+    --header-bg: #0A1A1F;
+    --header-fg: #E8EFEF;
+    --ok-bg: #DCF4E8; --ok-fg: #0F6A3C;
+    --warn-bg: #FCF0D8; --warn-fg: #8A5A00;
+    --crit-bg: #FBE1DE; --crit-fg: #9C2B1E;
+    --info-bg: #E6E6FA; --info-fg: #4B3F9E;
+    --neutral-bg: #E6E8E9; --neutral-fg: #454F54;
+    --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0D1417; --surface: #151F23; --surface-2: #1B262B; --fg: #E7EEEF; --muted: #8FA0A6; --border: #2A373C;
+      --accent: #2DD4C4; --accent-fg: #06201D; --header-bg: #06100F; --header-fg: #D9F4EE;
+      --ok-bg: #123524; --ok-fg: #6FE3A6; --warn-bg: #3A2C0B; --warn-fg: #F2C14E;
+      --crit-bg: #3A1512; --crit-fg: #F29A8E; --info-bg: #221F3D; --info-fg: #BDB4F0;
+      --neutral-bg: #242E32; --neutral-fg: #AEBBBF; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0D1417; --surface: #151F23; --surface-2: #1B262B; --fg: #E7EEEF; --muted: #8FA0A6; --border: #2A373C;
+    --accent: #2DD4C4; --accent-fg: #06201D; --header-bg: #06100F; --header-fg: #D9F4EE;
+    --ok-bg: #123524; --ok-fg: #6FE3A6; --warn-bg: #3A2C0B; --warn-fg: #F2C14E;
+    --crit-bg: #3A1512; --crit-fg: #F29A8E; --info-bg: #221F3D; --info-fg: #BDB4F0;
+    --neutral-bg: #242E32; --neutral-fg: #AEBBBF; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-display); -webkit-font-smoothing: antialiased; }
+  #root { min-height: 100%; display: flex; flex-direction: column; }
+  button, input, select { font-family: inherit; }
+  .subbrand { font-size: 11px; color: var(--header-fg); opacity: 0.6; text-transform: uppercase; letter-spacing: 0.1em; }
+  .brand-logo { height: 42px; width: auto; display: block; }
+  .brand-logo-header { height: 26px; width: auto; display: block; background: #FFFFFF; padding: 5px 12px; border-radius: 7px; }
+  .app-header { background: var(--header-bg); color: var(--header-fg); display: flex; align-items: center; gap: 14px; padding: 14px 20px; flex-wrap: wrap; }
+  .user-chip { font-size: 13px; color: var(--header-fg); opacity: 0.75; }
+  .centro-pill { margin-left: auto; background: var(--accent); color: var(--accent-fg); font-weight: 700; font-size: 14px; padding: 9px 16px; border-radius: 999px; border: none; cursor: pointer; white-space: nowrap; }
+  .tabs { display: flex; background: var(--header-bg); padding: 0 12px; gap: 2px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.08); }
+  .tab-btn { appearance: none; border: none; background: transparent; color: var(--header-fg); opacity: 0.6; font-size: 14px; font-weight: 600; padding: 14px 16px; cursor: pointer; border-bottom: 3px solid transparent; }
+  .tab-btn.active { opacity: 1; border-bottom-color: var(--accent); }
+  .content { flex: 1; padding: 20px; max-width: 1180px; width: 100%; margin: 0 auto; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 22px; margin-bottom: 18px; transition: background 0.2s, border-color 0.2s; }
+  .card.flash { background: var(--ok-bg); border-color: var(--ok-fg); }
+  .card h2 { margin: 0 0 16px; font-size: 18px; font-weight: 700; }
+  .btn { appearance: none; border: 1px solid transparent; border-radius: 8px; font-weight: 700; font-size: 15px; padding: 14px 20px; min-height: 52px; cursor: pointer; }
+  .btn-primary { background: var(--accent); color: var(--accent-fg); }
+  .btn-secondary { background: var(--surface-2); color: var(--fg); border-color: var(--border); }
+  .btn-outline { background: transparent; border-color: var(--fg); color: var(--fg); }
+  .btn-danger { background: var(--crit-fg); color: #FFF; }
+  .btn-small { padding: 7px 12px; min-height: auto; font-size: 13px; border-radius: 6px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  input, select { font-size: 18px; padding: 13px 14px; border: 1.5px solid var(--border); border-radius: 8px; min-height: 52px; width: 100%; background: var(--surface); color: var(--fg); }
+  input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(11, 110, 110, 0.25); }
+  input[type="file"] { min-height: auto; padding: 10px; font-size: 14px; }
+  .scan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .kpi { background: var(--header-bg); color: var(--header-fg); border-radius: 10px; padding: 18px; }
+  .kpi .num { font-size: 28px; font-weight: 800; line-height: 1.1; font-family: var(--font-mono); }
+  .kpi .label { font-size: 12px; color: var(--header-fg); opacity: 0.65; margin-top: 6px; }
+  .history-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
+  .history-row code { font-family: var(--font-mono); background: var(--surface-2); padding: 1px 6px; border-radius: 4px; }
+  .table-wrap { overflow-x: auto; }
+  .muted { color: var(--muted); font-size: 13.5px; }
+  .error-box { background: var(--crit-bg); color: var(--crit-fg); padding: 12px 14px; border-radius: 8px; font-size: 14px; margin-bottom: 16px; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+  .login-wrap { min-height: 100%; display: flex; align-items: center; justify-content: center; background: var(--header-bg); padding: 24px; }
+  .login-card { width: 100%; max-width: 400px; background: var(--surface); border-radius: 14px; padding: 32px; border: 1px solid var(--border); }
+  .login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+  .storage-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; }
+  .storage-pill.on { background: var(--ok-bg); color: var(--ok-fg); }
+  @media (max-width: 760px) {
+    .scan-grid { grid-template-columns: 1fr; }
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useRef, useMemo, useEffect, useCallback } = React;
+
+const CENTROS = ['Martorell', 'Baleares', 'CIM Vallés', 'Lleida', 'Manresa'];
+
+const BASE_USERS = [
+  { usuario: 'martorell', password: 'martorell2026', centro: 'Martorell', role: 'centro' },
+  { usuario: 'baleares', password: 'baleares2026', centro: 'Baleares', role: 'centro' },
+  { usuario: 'cimvalles', password: 'cimvalles2026', centro: 'CIM Vallés', role: 'centro' },
+  { usuario: 'lleida', password: 'lleida2026', centro: 'Lleida', role: 'centro' },
+  { usuario: 'manresa', password: 'manresa2026', centro: 'Manresa', role: 'centro' },
+  { usuario: 'admin', password: 'Scaitt2026!$', centro: null, role: 'admin' }
+];
+
+const USERS_KEY = 'scaitt-users';
+
+function loadUsers() {
+  const stored = loadLocal(USERS_KEY, null);
+  if (stored && Array.isArray(stored) && stored.length > 0) return stored;
+  return BASE_USERS;
+}
+
+function saveUsers(list) {
+  saveLocal(USERS_KEY, list);
+}
+
+const TABS = [
+  { id: 'scan', label: 'Lectura / Escáner' },
+  { id: 'upload', label: 'Cargar Excel Teórico' },
+  { id: 'report', label: 'Informe de Reconciliación' },
+  { id: 'settings', label: 'Ajustes / Centro' }
+];
+
+const STATUS_META = {
+  ok: { label: 'OK', bgVar: '--ok-bg', fgVar: '--ok-fg' },
+  descuadre: { label: 'Descuadre cantidad', bgVar: '--warn-bg', fgVar: '--warn-fg' },
+  desubicado: { label: 'Desubicado (crítico)', bgVar: '--crit-bg', fgVar: '--crit-fg' },
+  inesperado: { label: 'Referencia inesperada', bgVar: '--info-bg', fgVar: '--info-fg' },
+  faltante: { label: 'Faltante', bgVar: '--neutral-bg', fgVar: '--neutral-fg' }
+};
+
+function slugify(s) {
+  return String(s)
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+function findKey(row, substr) {
+  return Object.keys(row).find((k) => k.toLowerCase().indexOf(substr) !== -1);
+}
+
+function parseWorkbook(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  return raw
+    .map((row) => {
+      const kCentro = findKey(row, 'centro');
+      const kUbic = findKey(row, 'ubicac');
+      const kRef = findKey(row, 'referenc');
+      const kDesc = findKey(row, 'descrip');
+      const kCant = findKey(row, 'cantidad');
+      return {
+        centro: kCentro ? String(row[kCentro]).trim() : '',
+        ubicacion: kUbic ? String(row[kUbic]).trim() : '',
+        referencia: kRef ? String(row[kRef]).trim() : '',
+        descripcion: kDesc ? String(row[kDesc]).trim() : '',
+        cantidad: kCant ? (parseFloat(String(row[kCant]).replace(',', '.')) || 0) : 0
+      };
+    })
+    .filter((r) => r.referencia);
+}
+
+function computeReconciliation(stock, scans, centro) {
+  const theo = stock.filter((r) => r.centro === centro);
+  const centroScans = scans.filter((r) => r.centro === centro);
+
+  const scannedMap = {};
+  centroScans.forEach((s) => {
+    const key = s.ubicacion + '||' + s.referencia;
+    scannedMap[key] = (scannedMap[key] || 0) + s.cantidad;
+  });
+  const scannedByRef = {};
+  centroScans.forEach((s) => {
+    if (!scannedByRef[s.referencia]) scannedByRef[s.referencia] = {};
+    scannedByRef[s.referencia][s.ubicacion] = (scannedByRef[s.referencia][s.ubicacion] || 0) + s.cantidad;
+  });
+
+  const used = {};
+  const results = [];
+
+  theo.forEach((t) => {
+    const key = t.ubicacion + '||' + t.referencia;
+    const found = scannedMap[key];
+    const base = {
+      referencia: t.referencia, descripcion: t.descripcion,
+      ubicacionTeorica: t.ubicacion, cantidadTeorica: t.cantidad
+    };
+    if (found !== undefined) {
+      used[key] = true;
+      results.push(Object.assign({}, base, {
+        status: found === t.cantidad ? 'ok' : 'descuadre',
+        ubicacionReal: t.ubicacion, cantidadFisica: found
+      }));
+    } else {
+      const otherLocs = scannedByRef[t.referencia];
+      if (otherLocs) {
+        const names = Object.keys(otherLocs);
+        names.forEach((loc) => { used[loc + '||' + t.referencia] = true; });
+        const total = names.reduce((sum, l) => sum + otherLocs[l], 0);
+        results.push(Object.assign({}, base, { status: 'desubicado', ubicacionReal: names.join(', '), cantidadFisica: total }));
+      } else {
+        results.push(Object.assign({}, base, { status: 'faltante', ubicacionReal: '-', cantidadFisica: 0 }));
+      }
+    }
+  });
+
+  const theoRefs = {};
+  theo.forEach((t) => { theoRefs[t.referencia] = true; });
+  Object.keys(scannedMap).forEach((key) => {
+    if (used[key]) return;
+    const parts = key.split('||');
+    const ubic = parts[0], ref = parts[1];
+    if (!theoRefs[ref]) {
+      results.push({
+        status: 'inesperado', referencia: ref, descripcion: '(no está en el stock teórico)',
+        ubicacionTeorica: '-', ubicacionReal: ubic, cantidadTeorica: 0, cantidadFisica: scannedMap[key]
+      });
+    }
+  });
+
+  return results;
+}
+
+function loadLocal(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (err) {
+    return fallback;
+  }
+}
+
+function saveLocal(key, value) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (err) { /* almacenamiento no disponible */ }
+}
+
+function Badge({ status }) {
+  const meta = STATUS_META[status] || STATUS_META.faltante;
+  return (
+    <span className="badge" style={{ background: 'var(' + meta.bgVar + ')', color: 'var(' + meta.fgVar + ')' }}>
+      {meta.label}
+    </span>
+  );
+}
+
+function LoginScreen({ users, onLogin }) {
+  const [usuario, setUsuario] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = () => {
+    if (!usuario.trim() || !password.trim()) {
+      setError('Introduce usuario y contraseña.');
+      return;
+    }
+    const match = users.find((u) => u.usuario.toLowerCase() === usuario.trim().toLowerCase() && u.password === password);
+    if (!match) {
+      setError('Usuario o contraseña incorrectos.');
+      return;
+    }
+    onLogin({ usuario: match.usuario, centro: match.centro, role: match.role });
+  };
+
+  return (
+    <div className="login-wrap">
+      <div className="login-card">
+        <div className="login-brand">
+          <img src="logo.jpg" alt="SCAITT" className="brand-logo" />
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: -12, marginBottom: 22 }}>Control de Stock &middot; Inventario físico</div>
+        {error && <div className="error-box">{error}</div>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="field">
+            <label htmlFor="f-user">Usuario</label>
+            <input id="f-user" value={usuario} onChange={(e) => setUsuario(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} placeholder="usuario" />
+          </div>
+          <div className="field">
+            <label htmlFor="f-pass">Contraseña</label>
+            <input id="f-pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} placeholder="********" />
+          </div>
+          <button className="btn btn-primary" style={{ marginTop: 6 }} onClick={submit}>Entrar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScanTab({ scans, onSave, onDeleteLast }) {
+  const [ubicacion, setUbicacion] = useState('');
+  const [referencia, setReferencia] = useState('');
+  const [cantidad, setCantidad] = useState('1');
+  const [flash, setFlash] = useState(false);
+  const refUbicacion = useRef(null);
+  const refReferencia = useRef(null);
+  const refCantidad = useRef(null);
+  const audioCtx = useRef(null);
+  const flashTimer = useRef(null);
+
+  const beep = () => {
+    try {
+      if (!audioCtx.current) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        audioCtx.current = new Ctx();
+      }
+      const ctx = audioCtx.current;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 1500;
+      gain.gain.value = 0.05;
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.08);
+    } catch (err) { /* audio no soportado */ }
+  };
+
+  const save = () => {
+    if (!ubicacion.trim() || !referencia.trim()) return;
+    const qty = parseFloat(String(cantidad).replace(',', '.')) || 1;
+    onSave({ ubicacion: ubicacion.trim(), referencia: referencia.trim(), cantidad: qty });
+    setReferencia('');
+    setCantidad('1');
+    setFlash(true);
+    beep();
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(false), 350);
+    setTimeout(() => { if (refReferencia.current) refReferencia.current.focus(); }, 0);
+  };
+
+  const recent = scans.slice(0, 5);
+
+  return (
+    <React.Fragment>
+      <div className={flash ? 'card flash' : 'card'}>
+        <h2>Lectura con pistola</h2>
+        <div className="scan-grid">
+          <div className="field">
+            <label htmlFor="in-ubi">1. Ubicación</label>
+            <input id="in-ubi" ref={refUbicacion} value={ubicacion}
+              onChange={(e) => setUbicacion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (ubicacion.trim()) refReferencia.current && refReferencia.current.focus();
+                }
+              }}
+              placeholder="Escanear ubicación" />
+          </div>
+          <div className="field">
+            <label htmlFor="in-ref">2. Referencia</label>
+            <input id="in-ref" ref={refReferencia} value={referencia}
+              onChange={(e) => setReferencia(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (referencia.trim()) {
+                    if (refCantidad.current) { refCantidad.current.focus(); refCantidad.current.select(); }
+                  }
+                }
+              }}
+              placeholder="Escanear referencia" />
+          </div>
+          <div className="field">
+            <label htmlFor="in-cant">3. Cantidad</label>
+            <input id="in-cant" ref={refCantidad} value={cantidad}
+              onChange={(e) => setCantidad(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="btn btn-outline" onClick={() => { setUbicacion(''); refUbicacion.current && refUbicacion.current.focus(); }}>
+            Limpiar ubicación
+          </button>
+          <div className="muted" style={{ marginLeft: 'auto' }}>Lecturas registradas: <strong>{scans.length}</strong></div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Últimas lecturas</h2>
+        {recent.length === 0 && <div className="muted">Todavía no hay lecturas registradas.</div>}
+        {recent.map((r, i) => (
+          <div className="history-row" key={r.id}>
+            <div><strong>{r.referencia}</strong> &middot; <code>{r.ubicacion}</code> &middot; x{r.cantidad}</div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <span className="muted" style={{ fontSize: 12.5 }}>{new Date(r.ts).toLocaleTimeString()}</span>
+              {i === 0 && (
+                <button className="btn btn-danger btn-small" onClick={onDeleteLast}>Deshacer</button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </React.Fragment>
+  );
+}
+
+function UploadTab({ stock, fileName, onUpload, onClear }) {
+  const [error, setError] = useState('');
+
+  const onFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const rows = parseWorkbook(ev.target.result);
+        if (rows.length === 0) { setError('No se han encontrado filas válidas en el archivo.'); return; }
+        setError('');
+        onUpload(rows, file.name);
+      } catch (err) {
+        setError('Error al leer el archivo: ' + err.message);
+      }
+    };
+    reader.onerror = () => setError('No se ha podido leer el archivo.');
+    reader.readAsArrayBuffer(file);
+  };
+
+  const totalUnits = stock.reduce((sum, r) => sum + (r.cantidad || 0), 0);
+  const totalCentros = new Set(stock.map((r) => r.centro)).size;
+
+  return (
+    <div className="card">
+      <h2>Cargar stock teórico</h2>
+      <p className="muted" style={{ marginTop: -8 }}>
+        Columnas esperadas: Centro, Ubicación, Referencia, Descripción, Cantidad Teórica. Admite archivos .xlsx, .xls o .csv exportados desde Excel.
+      </p>
+      <input type="file" accept=".xlsx,.xls,.csv" onChange={onFile} />
+      {error && <div className="error-box" style={{ marginTop: 12 }}>{error}</div>}
+      {stock.length > 0 && (
+        <React.Fragment>
+          <div className="kpi-grid" style={{ marginTop: 20 }}>
+            <div className="kpi"><div className="num">{stock.length}</div><div className="label">Filas cargadas</div></div>
+            <div className="kpi"><div className="num">{totalUnits}</div><div className="label">Unidades teóricas</div></div>
+            <div className="kpi"><div className="num">{totalCentros}</div><div className="label">Centros en el archivo</div></div>
+            <div className="kpi" style={{ fontSize: 13 }}><div className="num" style={{ fontSize: 16 }}>{fileName || '-'}</div><div className="label">Archivo cargado</div></div>
+          </div>
+          <div className="table-wrap" style={{ marginTop: 16 }}>
+            <table>
+              <thead><tr><th>Centro</th><th>Ubicación</th><th>Referencia</th><th>Descripción</th><th className="num">Cant. Teórica</th></tr></thead>
+              <tbody>
+                {stock.slice(0, 10).map((row, i) => (
+                  <tr key={i}>
+                    <td>{row.centro}</td><td>{row.ubicacion}</td><td>{row.referencia}</td><td>{row.descripcion}</td>
+                    <td className="num">{row.cantidad}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn btn-outline" style={{ marginTop: 16 }} onClick={onClear}>
+            Borrar datos cargados
+          </button>
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
+function downloadCSV(filename, csv) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function ReportTab({ stock, scans, centro }) {
+  const [filter, setFilter] = useState('all');
+  const results = useMemo(() => computeReconciliation(stock, scans, centro), [stock, scans, centro]);
+  const filtered = filter === 'all' ? results : results.filter((r) => r.status === filter);
+
+  const theoCount = results.filter((r) => r.status !== 'inesperado').length;
+  const okCount = results.filter((r) => r.status === 'ok').length;
+  const pct = theoCount > 0 ? Math.round((okCount / theoCount) * 100) : 0;
+  const desubicadas = results.filter((r) => r.status === 'desubicado').length;
+  const faltantes = results.filter((r) => r.status === 'faltante').length;
+  const totalLeidos = scans.filter((r) => r.centro === centro).reduce((sum, r) => sum + r.cantidad, 0);
+
+  const exportCSV = () => {
+    const header = ['Estado', 'Referencia', 'Descripcion', 'UbicacionTeorica', 'UbicacionReal', 'CantidadTeorica', 'CantidadFisica'];
+    const lines = [header.join(';')];
+    results.forEach((r) => {
+      const meta = STATUS_META[r.status] || STATUS_META.faltante;
+      const vals = [meta.label, r.referencia, r.descripcion, r.ubicacionTeorica, r.ubicacionReal, r.cantidadTeorica, r.cantidadFisica];
+      lines.push(vals.map((v) => String(v == null ? '' : v).replace(/;/g, ',')).join(';'));
+    });
+    downloadCSV('reconciliacion_' + centro.replace(/\s+/g, '_') + '.csv', lines.join('\n'));
+  };
+
+  return (
+    <React.Fragment>
+      <div className="kpi-grid">
+        <div className="kpi"><div className="num">{totalLeidos}</div><div className="label">Total unidades leídas</div></div>
+        <div className="kpi"><div className="num">{pct}%</div><div className="label">% Coincidencia</div></div>
+        <div className="kpi"><div className="num">{desubicadas}</div><div className="label">Referencias desubicadas</div></div>
+        <div className="kpi"><div className="num">{faltantes}</div><div className="label">Referencias faltantes</div></div>
+      </div>
+      <div className="card">
+        <div className="toolbar">
+          <h2 style={{ margin: 0 }}>Informe de reconciliación &mdash; {centro}</h2>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+              <option value="all">Todos los estados</option>
+              <option value="ok">OK</option>
+              <option value="descuadre">Descuadre de cantidad</option>
+              <option value="desubicado">Desubicado (crítico)</option>
+              <option value="inesperado">Referencia inesperada</option>
+              <option value="faltante">Faltante</option>
+            </select>
+            <button className="btn btn-secondary" onClick={exportCSV}>Exportar CSV</button>
+          </div>
+        </div>
+        {filtered.length === 0 && <div className="muted" style={{ padding: '20px 0' }}>Carga el stock teórico y registra lecturas para ver el informe.</div>}
+        {filtered.length > 0 && (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Estado</th><th>Referencia</th><th>Descripción</th><th>Ubic. Teórica</th><th>Ubic. Real</th><th className="num">Cant. Teórica</th><th className="num">Cant. Física</th></tr>
+              </thead>
+              <tbody>
+                {filtered.map((row, i) => (
+                  <tr key={i}>
+                    <td><Badge status={row.status} /></td>
+                    <td>{row.referencia}</td><td>{row.descripcion}</td>
+                    <td>{row.ubicacionTeorica}</td><td>{row.ubicacionReal}</td>
+                    <td className="num">{row.cantidadTeorica}</td><td className="num">{row.cantidadFisica}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </React.Fragment>
+  );
+}
+
+function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
+  const [usuario, setUsuario] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState('centro');
+  const [centroSel, setCentroSel] = useState(CENTROS[0]);
+  const [error, setError] = useState('');
+  const [visible, setVisible] = useState({});
+  const [editingPw, setEditingPw] = useState({});
+
+  const submitAdd = () => {
+    const uname = usuario.trim().toLowerCase();
+    if (!uname || !password.trim()) { setError('Usuario y contraseña son obligatorios.'); return; }
+    if (users.some((u) => u.usuario.toLowerCase() === uname)) { setError('Ya existe un usuario con ese nombre.'); return; }
+    onAdd({ usuario: uname, password: password, centro: role === 'admin' ? null : centroSel, role: role });
+    setUsuario(''); setPassword(''); setRole('centro'); setCentroSel(CENTROS[0]); setError('');
+  };
+
+  return (
+    <React.Fragment>
+      <div className="card">
+        <h2>Añadir usuario</h2>
+        {error && <div className="error-box">{error}</div>}
+        <div className="scan-grid">
+          <div className="field">
+            <label htmlFor="nu-user">Usuario</label>
+            <input id="nu-user" value={usuario} onChange={(e) => setUsuario(e.target.value)} placeholder="usuario" />
+          </div>
+          <div className="field">
+            <label htmlFor="nu-pass">Contraseña</label>
+            <input id="nu-pass" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="contraseña" />
+          </div>
+          <div className="field">
+            <label htmlFor="nu-role">Rol</label>
+            <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="centro">Centro</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+        </div>
+        {role === 'centro' && (
+          <div className="field" style={{ maxWidth: 340, marginTop: 16 }}>
+            <label htmlFor="nu-centro">Centro</label>
+            <select id="nu-centro" value={centroSel} onChange={(e) => setCentroSel(e.target.value)}>
+              {CENTROS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        )}
+        <button className="btn btn-primary" style={{ marginTop: 18 }} onClick={submitAdd}>Añadir usuario</button>
+      </div>
+
+      <div className="card">
+        <h2>Usuarios</h2>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Usuario</th><th>Rol</th><th>Centro</th><th>Contraseña</th><th>Acciones</th></tr></thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.usuario}>
+                  <td>{u.usuario}</td>
+                  <td>{u.role === 'admin' ? <span className="badge" style={{ background: 'var(--info-bg)', color: 'var(--info-fg)' }}>ADMIN</span> : 'Centro'}</td>
+                  <td>{u.centro || '-'}</td>
+                  <td>
+                    {editingPw[u.usuario] === undefined ? (
+                      <code>{visible[u.usuario] ? u.password : '••••••••'}</code>
+                    ) : (
+                      <input style={{ minHeight: 'auto', padding: '6px 8px', fontSize: 13, width: 160 }}
+                        value={editingPw[u.usuario]}
+                        onChange={(e) => setEditingPw(Object.assign({}, editingPw, { [u.usuario]: e.target.value }))} />
+                    )}
+                  </td>
+                  <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {editingPw[u.usuario] === undefined ? (
+                      <React.Fragment>
+                        <button className="btn btn-outline btn-small" onClick={() => setVisible(Object.assign({}, visible, { [u.usuario]: !visible[u.usuario] }))}>
+                          {visible[u.usuario] ? 'Ocultar' : 'Ver'}
+                        </button>
+                        <button className="btn btn-secondary btn-small" onClick={() => setEditingPw(Object.assign({}, editingPw, { [u.usuario]: u.password }))}>
+                          Cambiar contraseña
+                        </button>
+                        {u.usuario !== currentUser && (
+                          <button className="btn btn-danger btn-small" onClick={() => onDelete(u.usuario)}>Eliminar</button>
+                        )}
+                      </React.Fragment>
+                    ) : (
+                      <React.Fragment>
+                        <button className="btn btn-primary btn-small" onClick={() => {
+                          onUpdatePassword(u.usuario, editingPw[u.usuario]);
+                          const next = Object.assign({}, editingPw); delete next[u.usuario]; setEditingPw(next);
+                        }}>Guardar</button>
+                        <button className="btn btn-outline btn-small" onClick={() => {
+                          const next = Object.assign({}, editingPw); delete next[u.usuario]; setEditingPw(next);
+                        }}>Cancelar</button>
+                      </React.Fragment>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
+          Los usuarios se guardan en este navegador. Si lo publicas en varios dispositivos, da de alta los usuarios en cada uno o reparte la contraseña del centro correspondiente.
+        </p>
+      </div>
+    </React.Fragment>
+  );
+}
+
+function SettingsTab({ user, centro, setCentro, isAdmin, onReset, onLogout }) {
+  return (
+    <div className="card">
+      <h2>Ajustes</h2>
+      <div className="field" style={{ maxWidth: 340 }}>
+        <label htmlFor={isAdmin ? 'set-centro' : undefined}>{isAdmin ? 'Centro a visualizar' : 'Centro asignado'}</label>
+        {isAdmin ? (
+          <select id="set-centro" value={centro} onChange={(e) => setCentro(e.target.value)}>
+            {CENTROS.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        ) : (
+          <div style={{ fontSize: 18, fontWeight: 700, padding: '13px 14px', border: '1.5px solid var(--border)', borderRadius: 8, background: 'var(--surface-2)' }}>
+            {centro}
+          </div>
+        )}
+        <div className="muted" style={{ fontSize: 12 }}>
+          {isAdmin ? 'Como administrador puedes consultar y editar el stock de cualquier centro.' : 'El centro viene fijado por tu usuario y no se puede cambiar.'}
+        </div>
+      </div>
+      <p className="muted">Usuario conectado: <strong>{user.usuario}</strong>{isAdmin && <React.Fragment> &middot; <span className="badge" style={{ background: 'var(--info-bg)', color: 'var(--info-fg)' }}>ADMIN</span></React.Fragment>}</p>
+      <p><span className="storage-pill on">Guardado en este navegador</span></p>
+      <p className="muted" style={{ fontSize: 12.5 }}>
+        Los datos se guardan en este dispositivo/navegador (localStorage), por centro. Si usas otro ordenador o tablet, o borras los datos de navegación, no verás lo cargado aquí.
+      </p>
+      <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
+        <button className="btn btn-danger" onClick={onReset}>Borrar stock teórico y lecturas de este centro</button>
+        <button className="btn btn-outline" onClick={onLogout}>Cerrar sesión</button>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [centro, setCentro] = useState(null);
+  const [activeTab, setActiveTab] = useState('scan');
+  const [stock, setStock] = useState([]);
+  const [fileName, setFileName] = useState('');
+  const [scans, setScans] = useState([]);
+  const [users, setUsers] = useState(() => loadUsers());
+  const nextId = useRef(1);
+
+  const handleAddUser = useCallback((newUser) => {
+    setUsers((prev) => { const next = prev.concat([newUser]); saveUsers(next); return next; });
+  }, []);
+
+  const handleUpdatePassword = useCallback((usuario, newPassword) => {
+    setUsers((prev) => {
+      const next = prev.map((u) => (u.usuario === usuario ? Object.assign({}, u, { password: newPassword }) : u));
+      saveUsers(next);
+      return next;
+    });
+  }, []);
+
+  const handleDeleteUser = useCallback((usuario) => {
+    setUsers((prev) => { const next = prev.filter((u) => u.usuario !== usuario); saveUsers(next); return next; });
+  }, []);
+
+  const slug = centro ? slugify(centro) : null;
+
+  useEffect(() => {
+    if (!slug) return;
+    const data = loadLocal('scaitt-centro-' + slug, { stock: [], fileName: '', scans: [] });
+    setStock(data.stock || []);
+    setFileName(data.fileName || '');
+    setScans(data.scans || []);
+    const maxId = (data.scans || []).reduce((m, s) => Math.max(m, (s.localId || 0)), 0);
+    nextId.current = maxId + 1;
+  }, [slug]);
+
+  const persist = useCallback((next) => {
+    if (!slug) return;
+    saveLocal('scaitt-centro-' + slug, next);
+  }, [slug]);
+
+  const isAdmin = user && user.role === 'admin';
+
+  const handleUpload = useCallback((rows, name) => {
+    setStock(rows); setFileName(name);
+    persist({ stock: rows, fileName: name, scans });
+  }, [persist, scans]);
+
+  const handleClearStock = useCallback(() => {
+    setStock([]); setFileName('');
+    persist({ stock: [], fileName: '', scans });
+  }, [persist, scans]);
+
+  const handleSaveScan = useCallback((rec) => {
+    const full = Object.assign({ id: 'l' + (nextId.current++), localId: nextId.current, centro, ts: Date.now() }, rec);
+    setScans((prev) => {
+      const next = [full].concat(prev);
+      persist({ stock, fileName, scans: next });
+      return next;
+    });
+  }, [persist, stock, fileName, centro]);
+
+  const handleDeleteLastScan = useCallback(() => {
+    setScans((prev) => {
+      if (prev.length === 0) return prev;
+      const next = prev.slice(1);
+      persist({ stock, fileName, scans: next });
+      return next;
+    });
+  }, [persist, stock, fileName]);
+
+  const handleResetAll = useCallback(() => {
+    setStock([]); setFileName(''); setScans([]);
+    persist({ stock: [], fileName: '', scans: [] });
+  }, [persist]);
+
+  if (!user) {
+    return <LoginScreen users={users} onLogin={(u) => {
+      setUser({ usuario: u.usuario, role: u.role });
+      setCentro(u.role === 'admin' ? CENTROS[0] : u.centro);
+      setActiveTab('scan');
+    }} />;
+  }
+
+  return (
+    <React.Fragment>
+      <div className="app-header">
+        <img src="logo.jpg" alt="SCAITT" className="brand-logo-header" />
+        <div className="subbrand" style={{ marginLeft: -2 }}>Control de Stock</div>
+        <div className="user-chip" style={{ marginLeft: 18 }}>{user.usuario}</div>
+        <button className="centro-pill" onClick={() => setActiveTab('settings')}>{centro}</button>
+      </div>
+      <div className="tabs">
+        {TABS.concat(isAdmin ? [{ id: 'users', label: 'Usuarios' }] : []).map((t) => (
+          <button key={t.id} className={activeTab === t.id ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab(t.id)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="content">
+        {activeTab === 'scan' && <ScanTab scans={scans} onSave={handleSaveScan} onDeleteLast={handleDeleteLastScan} />}
+        {activeTab === 'upload' && <UploadTab stock={stock} fileName={fileName} onUpload={handleUpload} onClear={handleClearStock} />}
+        {activeTab === 'report' && <ReportTab stock={stock} scans={scans} centro={centro} />}
+        {activeTab === 'users' && isAdmin && (
+          <UsersTab
+            users={users} currentUser={user.usuario}
+            onAdd={handleAddUser} onUpdatePassword={handleUpdatePassword} onDelete={handleDeleteUser}
+          />
+        )}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            user={user} centro={centro} setCentro={setCentro} isAdmin={isAdmin}
+            onReset={handleResetAll} onLogout={() => { setUser(null); setCentro(null); }}
+          />
+        )}
+      </div>
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
