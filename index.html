@@ -115,13 +115,19 @@ const { useState, useRef, useMemo, useEffect, useCallback } = React;
 const CENTROS = ['Martorell', 'Baleares', 'CIM Vallés', 'Lleida', 'Manresa'];
 
 const BASE_USERS = [
-  { usuario: 'martorell', password: 'martorell2026', centro: 'Martorell', role: 'centro' },
-  { usuario: 'baleares', password: 'baleares2026', centro: 'Baleares', role: 'centro' },
-  { usuario: 'cimvalles', password: 'cimvalles2026', centro: 'CIM Vallés', role: 'centro' },
-  { usuario: 'lleida', password: 'lleida2026', centro: 'Lleida', role: 'centro' },
-  { usuario: 'manresa', password: 'manresa2026', centro: 'Manresa', role: 'centro' },
-  { usuario: 'admin', password: 'Scaitt2026!$', centro: null, role: 'admin' }
+  { usuario: 'martorell', passwordHash: '87f02245ffb80847b9272b39136f10e30e6ea09a3ed5eb7aa128a354def5aaa2', centro: 'Martorell', role: 'centro' },
+  { usuario: 'baleares', passwordHash: '15420dd73407ebad918cf82f711b480a68a7c9ca9ffd65e9ecc955173f00f804', centro: 'Baleares', role: 'centro' },
+  { usuario: 'cimvalles', passwordHash: 'e2a7c43241e680029d0522a95b306ae77298c15c1ebd16aaea3a715dd63f4a1a', centro: 'CIM Vallés', role: 'centro' },
+  { usuario: 'lleida', passwordHash: '812e6803a171d3545c9c3a1ae2fb88d565f6d1138159e9cbd843b45cc3faf863', centro: 'Lleida', role: 'centro' },
+  { usuario: 'manresa', passwordHash: '17a3ee434e2c9b3873684c252851c64bcb906d486d1ccf3d19c38c1b8332ead8', centro: 'Manresa', role: 'centro' },
+  { usuario: 'admin', passwordHash: '9c4a8ac7f759f78efa494345bd889a1e9a97c005733a2f173787e8cc5567b1e3', centro: null, role: 'admin' }
 ];
+
+async function sha256Hex(text) {
+  const enc = new TextEncoder().encode(text);
+  const digest = await window.crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 const USERS_KEY = 'scaitt-users';
 
@@ -272,12 +278,17 @@ function LoginScreen({ users, onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const submit = () => {
+  const [checking, setChecking] = useState(false);
+
+  const submit = async () => {
     if (!usuario.trim() || !password.trim()) {
       setError('Introduce usuario y contraseña.');
       return;
     }
-    const match = users.find((u) => u.usuario.toLowerCase() === usuario.trim().toLowerCase() && u.password === password);
+    setChecking(true);
+    const hash = await sha256Hex(password);
+    setChecking(false);
+    const match = users.find((u) => u.usuario.toLowerCase() === usuario.trim().toLowerCase() && u.passwordHash === hash);
     if (!match) {
       setError('Usuario o contraseña incorrectos.');
       return;
@@ -304,7 +315,7 @@ function LoginScreen({ users, onLogin }) {
             <input id="f-pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} placeholder="********" />
           </div>
-          <button className="btn btn-primary" style={{ marginTop: 6 }} onClick={submit}>Entrar</button>
+          <button className="btn btn-primary" style={{ marginTop: 6 }} onClick={submit} disabled={checking}>{checking ? 'Comprobando…' : 'Entrar'}</button>
         </div>
       </div>
     </div>
@@ -567,15 +578,28 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
   const [role, setRole] = useState('centro');
   const [centroSel, setCentroSel] = useState(CENTROS[0]);
   const [error, setError] = useState('');
-  const [visible, setVisible] = useState({});
   const [editingPw, setEditingPw] = useState({});
+  const [busy, setBusy] = useState(false);
 
-  const submitAdd = () => {
+  const submitAdd = async () => {
     const uname = usuario.trim().toLowerCase();
     if (!uname || !password.trim()) { setError('Usuario y contraseña son obligatorios.'); return; }
     if (users.some((u) => u.usuario.toLowerCase() === uname)) { setError('Ya existe un usuario con ese nombre.'); return; }
-    onAdd({ usuario: uname, password: password, centro: role === 'admin' ? null : centroSel, role: role });
+    setBusy(true);
+    const passwordHash = await sha256Hex(password);
+    setBusy(false);
+    onAdd({ usuario: uname, passwordHash: passwordHash, centro: role === 'admin' ? null : centroSel, role: role });
     setUsuario(''); setPassword(''); setRole('centro'); setCentroSel(CENTROS[0]); setError('');
+  };
+
+  const submitPasswordChange = async (usuarioTarget) => {
+    const newPw = editingPw[usuarioTarget];
+    if (!newPw || !newPw.trim()) return;
+    setBusy(true);
+    const hash = await sha256Hex(newPw);
+    setBusy(false);
+    onUpdatePassword(usuarioTarget, hash);
+    const next = Object.assign({}, editingPw); delete next[usuarioTarget]; setEditingPw(next);
   };
 
   return (
@@ -608,7 +632,7 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
             </select>
           </div>
         )}
-        <button className="btn btn-primary" style={{ marginTop: 18 }} onClick={submitAdd}>Añadir usuario</button>
+        <button className="btn btn-primary" style={{ marginTop: 18 }} onClick={submitAdd} disabled={busy}>{busy ? 'Guardando…' : 'Añadir usuario'}</button>
       </div>
 
       <div className="card">
@@ -624,9 +648,10 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
                   <td>{u.centro || '-'}</td>
                   <td>
                     {editingPw[u.usuario] === undefined ? (
-                      <code>{visible[u.usuario] ? u.password : '••••••••'}</code>
+                      <span className="muted">cifrada</span>
                     ) : (
                       <input style={{ minHeight: 'auto', padding: '6px 8px', fontSize: 13, width: 160 }}
+                        placeholder="nueva contraseña"
                         value={editingPw[u.usuario]}
                         onChange={(e) => setEditingPw(Object.assign({}, editingPw, { [u.usuario]: e.target.value }))} />
                     )}
@@ -634,10 +659,7 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
                   <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {editingPw[u.usuario] === undefined ? (
                       <React.Fragment>
-                        <button className="btn btn-outline btn-small" onClick={() => setVisible(Object.assign({}, visible, { [u.usuario]: !visible[u.usuario] }))}>
-                          {visible[u.usuario] ? 'Ocultar' : 'Ver'}
-                        </button>
-                        <button className="btn btn-secondary btn-small" onClick={() => setEditingPw(Object.assign({}, editingPw, { [u.usuario]: u.password }))}>
+                        <button className="btn btn-secondary btn-small" onClick={() => setEditingPw(Object.assign({}, editingPw, { [u.usuario]: '' }))}>
                           Cambiar contraseña
                         </button>
                         {u.usuario !== currentUser && (
@@ -646,10 +668,9 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
                       </React.Fragment>
                     ) : (
                       <React.Fragment>
-                        <button className="btn btn-primary btn-small" onClick={() => {
-                          onUpdatePassword(u.usuario, editingPw[u.usuario]);
-                          const next = Object.assign({}, editingPw); delete next[u.usuario]; setEditingPw(next);
-                        }}>Guardar</button>
+                        <button className="btn btn-primary btn-small" disabled={busy} onClick={() => submitPasswordChange(u.usuario)}>
+                          {busy ? 'Guardando…' : 'Guardar'}
+                        </button>
                         <button className="btn btn-outline btn-small" onClick={() => {
                           const next = Object.assign({}, editingPw); delete next[u.usuario]; setEditingPw(next);
                         }}>Cancelar</button>
@@ -662,7 +683,7 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
           </table>
         </div>
         <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
-          Los usuarios se guardan en este navegador. Si lo publicas en varios dispositivos, da de alta los usuarios en cada uno o reparte la contraseña del centro correspondiente.
+          Las contraseñas se guardan cifradas (SHA-256): ni en este navegador ni en el código fuente se puede leer el texto en claro. Si olvidas una, usa "Cambiar contraseña" para ponerle una nueva.
         </p>
       </div>
     </React.Fragment>
@@ -715,9 +736,9 @@ function App() {
     setUsers((prev) => { const next = prev.concat([newUser]); saveUsers(next); return next; });
   }, []);
 
-  const handleUpdatePassword = useCallback((usuario, newPassword) => {
+  const handleUpdatePassword = useCallback((usuario, newPasswordHash) => {
     setUsers((prev) => {
-      const next = prev.map((u) => (u.usuario === usuario ? Object.assign({}, u, { password: newPassword }) : u));
+      const next = prev.map((u) => (u.usuario === usuario ? Object.assign({}, u, { passwordHash: newPasswordHash }) : u));
       saveUsers(next);
       return next;
     });
