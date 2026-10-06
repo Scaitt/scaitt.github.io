@@ -108,7 +108,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useRef, useMemo, useEffect, useCallback } = React;
@@ -542,10 +542,73 @@ function UploadTab({ stock, fileName, onUpload, onClear, onRefresh }) {
   );
 }
 
-function downloadWorkbook(filename, rows2D) {
-  const ws = XLSX.utils.aoa_to_sheet(rows2D);
+const XL_STATUS = {
+  ok: { bg: 'DCF4E8', fg: '0F6A3C' },
+  descuadre: { bg: 'FCF0D8', fg: '8A5A00' },
+  desubicado: { bg: 'FBE1DE', fg: '9C2B1E' },
+  inesperado: { bg: 'E6E6FA', fg: '4B3F9E' },
+  faltante: { bg: 'ECEFF0', fg: '4A5A60' }
+};
+const XL_BORDER = { style: 'thin', color: { rgb: 'D5DCDE' } };
+const XL_BORDERS = { top: XL_BORDER, bottom: XL_BORDER, left: XL_BORDER, right: XL_BORDER };
+const XL_FONT = 'Calibri';
+
+function xlCell(v, s) {
+  return { v: v, t: typeof v === 'number' ? 'n' : 's', s: s };
+}
+
+// Builds a styled sheet: title block, optional summary rows, header row and data rows.
+// cols: [{ header, width, num }]; rows: [{ values: [...], fill?, statusCol?, status? }]
+function buildStyledSheet(title, subtitle, summary, cols, rows) {
+  const aoa = [];
+  const merges = [];
+  const last = cols.length - 1;
+  aoa.push([xlCell(title, { font: { name: XL_FONT, sz: 16, bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '1456D6' } }, alignment: { vertical: 'center' } })]);
+  aoa.push([xlCell(subtitle, { font: { name: XL_FONT, sz: 10, color: { rgb: '4A5A60' } } })]);
+  merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: last } }, { s: { r: 1, c: 0 }, e: { r: 1, c: last } });
+  for (let c = 1; c <= last; c++) aoa[0].push(xlCell('', { fill: { fgColor: { rgb: '1456D6' } } }));
+  aoa.push([]);
+  summary.forEach(([label, value]) => {
+    aoa.push([
+      xlCell(label, { font: { name: XL_FONT, sz: 10, bold: true, color: { rgb: '4A5A60' } }, fill: { fgColor: { rgb: 'F3F6F7' } }, border: XL_BORDERS }),
+      xlCell(value, { font: { name: XL_FONT, sz: 11, bold: true }, fill: { fgColor: { rgb: 'F3F6F7' } }, border: XL_BORDERS, alignment: { horizontal: 'right' } })
+    ]);
+  });
+  if (summary.length) aoa.push([]);
+  const headerRow = aoa.length;
+  aoa.push(cols.map((c) => xlCell(c.header, {
+    font: { name: XL_FONT, sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+    fill: { fgColor: { rgb: '0A1A1F' } }, border: XL_BORDERS,
+    alignment: { horizontal: c.num ? 'right' : 'left', vertical: 'center', wrapText: true }
+  })));
+  rows.forEach((row, i) => {
+    const zebra = i % 2 === 1 ? 'F7F9FA' : 'FFFFFF';
+    aoa.push(row.values.map((v, ci) => {
+      const isStatus = row.status && ci === row.statusCol;
+      const st = isStatus ? XL_STATUS[row.status] : null;
+      const style = {
+        font: { name: XL_FONT, sz: 10, bold: !!st, color: { rgb: st ? st.fg : '1A2427' } },
+        fill: { fgColor: { rgb: st ? st.bg : zebra } }, border: XL_BORDERS,
+        alignment: { horizontal: cols[ci].num ? 'right' : 'left', vertical: 'center' }
+      };
+      if (cols[ci].num) style.numFmt = '#,##0.##';
+      return xlCell(v === undefined || v === null ? '' : v, style);
+    }));
+  });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = merges;
+  ws['!cols'] = cols.map((c) => ({ wch: c.width }));
+  ws['!rows'] = [{ hpt: 30 }];
+  ws['!rows'][headerRow] = { hpt: 22 };
+  if (rows.length) {
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: headerRow, c: 0 }, e: { r: headerRow + rows.length, c: last } }) };
+  }
+  return ws;
+}
+
+function downloadWorkbook(filename, sheets) {
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Reconciliación');
+  sheets.forEach(([name, ws]) => XLSX.utils.book_append_sheet(wb, ws, name));
   const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
@@ -555,7 +618,7 @@ function downloadWorkbook(filename, rows2D) {
   URL.revokeObjectURL(url);
 }
 
-function ReportTab({ stock, scans, centro }) {
+function ReportTab({ stock, scans, centro, usuario }) {
   const [filter, setFilter] = useState('all');
   const results = useMemo(() => computeReconciliation(stock, scans, centro), [stock, scans, centro]);
   const filtered = filter === 'all' ? results : results.filter((r) => r.status === filter);
@@ -568,13 +631,42 @@ function ReportTab({ stock, scans, centro }) {
   const totalLeidos = scans.filter((r) => r.centro === centro).reduce((sum, r) => sum + r.cantidad, 0);
 
   const exportExcel = () => {
-    const header = ['Estado', 'Referencia', 'Descripción', 'Ubicación Teórica', 'Ubicación Real', 'Cantidad Teórica', 'Cantidad Física'];
-    const rows = [header];
-    results.forEach((r) => {
+    const now = new Date();
+    const fecha = now.toLocaleDateString('es-ES') + ' ' + now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    const subtitle = 'Centro: ' + centro + '   ·   Generado: ' + fecha + (usuario ? '   ·   Por: ' + usuario : '');
+    const count = (st) => results.filter((r) => r.status === st).length;
+
+    const recCols = [
+      { header: 'Estado', width: 22 }, { header: 'Referencia', width: 18 }, { header: 'Descripción', width: 36 },
+      { header: 'Ubicación teórica', width: 18 }, { header: 'Ubicación real', width: 18 },
+      { header: 'Cant. teórica', width: 13, num: true }, { header: 'Cant. física', width: 13, num: true },
+      { header: 'Diferencia', width: 12, num: true }
+    ];
+    const recRows = results.map((r) => {
       const meta = STATUS_META[r.status] || STATUS_META.faltante;
-      rows.push([meta.label, r.referencia, r.descripcion, r.ubicacionTeorica, r.ubicacionReal, r.cantidadTeorica, r.cantidadFisica]);
+      const teo = Number(r.cantidadTeorica) || 0;
+      const fis = Number(r.cantidadFisica) || 0;
+      return { status: r.status, statusCol: 0, values: [meta.label, r.referencia, r.descripcion, r.ubicacionTeorica, r.ubicacionReal, teo, fis, fis - teo] };
     });
-    downloadWorkbook('reconciliacion_' + centro.replace(/\s+/g, '_') + '.xlsx', rows);
+    const summary = [
+      ['Total unidades leídas', totalLeidos], ['% Coincidencia', pct + '%'],
+      ['OK', count('ok')], ['Descuadre cantidad', count('descuadre')], ['Desubicado (crítico)', count('desubicado')],
+      ['Referencia inesperada', count('inesperado')], ['Faltante', count('faltante')]
+    ];
+    const recSheet = buildStyledSheet('SCAITT · Informe de reconciliación de stock', subtitle, summary, recCols, recRows);
+
+    const lecCols = [
+      { header: 'Fecha y hora', width: 18 }, { header: 'Ubicación', width: 18 },
+      { header: 'Referencia', width: 18 }, { header: 'Cantidad', width: 12, num: true }
+    ];
+    const lecRows = scans.filter((s) => s.centro === centro).slice().reverse().map((s) => ({
+      values: [s.ts ? new Date(s.ts).toLocaleString('es-ES') : '', s.ubicacion, s.referencia, Number(s.cantidad) || 0]
+    }));
+    const lecSheet = buildStyledSheet('SCAITT · Lecturas registradas', subtitle, [], lecCols, lecRows);
+
+    const stamp = now.toISOString().slice(0, 10);
+    downloadWorkbook('SCAITT_reconciliacion_' + centro.replace(/\s+/g, '_') + '_' + stamp + '.xlsx',
+      [['Reconciliación', recSheet], ['Lecturas', lecSheet]]);
   };
 
   return (
@@ -919,7 +1011,7 @@ function App() {
         {connError && <div className="error-box">{connError}</div>}
         {activeTab === 'scan' && <ScanTab scans={scans} onSave={handleSaveScan} onDeleteLast={handleDeleteLastScan} />}
         {activeTab === 'upload' && <UploadTab stock={stock} fileName={fileName} onUpload={handleUpload} onClear={handleClearStock} onRefresh={fetchStock} />}
-        {activeTab === 'report' && <ReportTab stock={stock} scans={scans} centro={centro} />}
+        {activeTab === 'report' && <ReportTab stock={stock} scans={scans} centro={centro} usuario={user.usuario} />}
         {activeTab === 'users' && isAdmin && (
           <UsersTab
             users={users} currentUser={user.usuario}
