@@ -75,6 +75,8 @@
   input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(11, 110, 110, 0.25); }
   input[type="file"] { min-height: auto; padding: 10px; font-size: 14px; }
   .scan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
+  .keypad .btn { min-height: 46px; padding: 0; font-size: 20px; font-weight: 700; justify-content: center; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
   th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; }
@@ -402,6 +404,11 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
     setTimeout(() => { if (refReferencia.current) refReferencia.current.focus(); }, 0);
   };
 
+  const stepQty = (d) => {
+    const cur = cantidad.trim() === '' ? 1 : (parseFloat(cantidad.replace(',', '.')) || 0);
+    setCantidad(String(Math.max(1, cur + d)));
+  };
+
   const recent = scans.slice(0, 5);
 
   return (
@@ -446,6 +453,15 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
               onChange={(e) => setCantidad(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); } }}
               placeholder="1" />
+            <div className="keypad">
+              <button type="button" className="btn btn-outline" onClick={() => stepQty(-1)}>−</button>
+              <button type="button" className="btn btn-outline" onClick={() => stepQty(1)}>+</button>
+              <button type="button" className="btn btn-outline" onClick={() => setCantidad('')}>C</button>
+              {['7', '8', '9', '4', '5', '6', '1', '2', '3', ',', '0'].map((k) => (
+                <button key={k} type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c + k)}>{k}</button>
+              ))}
+              <button type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c.slice(0, -1))}>⌫</button>
+            </div>
           </div>
         </div>
         {saveError && <div className="error-box" style={{ marginTop: 16 }}>{saveError}</div>}
