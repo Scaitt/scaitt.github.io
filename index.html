@@ -113,6 +113,30 @@
 <script type="text/babel" data-presets="react">
 const { useState, useRef, useMemo, useEffect, useCallback } = React;
 
+const SB_URL = 'https://udtbfqngbmnsqnlpbgdj.supabase.co';
+const SB_KEY = 'sb_publishable_NpylLXzNbWVG1fKLljbFTQ_ISdFzGgp';
+const SB_HEADERS = { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' };
+const POLL_MS = 15000;
+
+async function sbGetStock(slug) {
+  const res = await fetch(SB_URL + '/rest/v1/centro_stock?centro_slug=eq.' + encodeURIComponent(slug) + '&select=stock,file_name', { headers: SB_HEADERS });
+  if (!res.ok) throw new Error('Supabase read failed: ' + res.status);
+  const rows = await res.json();
+  return rows[0] || null;
+}
+
+async function sbUpsertStock(slug, stock, fileName) {
+  const res = await fetch(SB_URL + '/rest/v1/centro_stock', {
+    method: 'POST',
+    headers: Object.assign({}, SB_HEADERS, { Prefer: 'resolution=merge-duplicates,return=minimal' }),
+    body: JSON.stringify([{ centro_slug: slug, stock: stock, file_name: fileName, updated_at: new Date().toISOString() }])
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error('Supabase write failed: ' + res.status + ' ' + t);
+  }
+}
+
 const CENTROS = ['Martorell', 'Baleares', 'CIM Vallés', 'Lleida', 'Manresa'];
 
 const BASE_USERS = [
@@ -445,7 +469,7 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
   );
 }
 
-function UploadTab({ stock, fileName, onUpload, onClear }) {
+function UploadTab({ stock, fileName, onUpload, onClear, onRefresh }) {
   const [error, setError] = useState('');
 
   const onFile = (e) => {
@@ -471,9 +495,12 @@ function UploadTab({ stock, fileName, onUpload, onClear }) {
 
   return (
     <div className="card">
-      <h2>Cargar stock teórico</h2>
+      <div className="toolbar">
+        <h2 style={{ margin: 0 }}>Cargar stock teórico</h2>
+        <button className="btn btn-outline btn-small" onClick={onRefresh}>Actualizar ahora</button>
+      </div>
       <p className="muted" style={{ marginTop: -8 }}>
-        Columnas esperadas: Centro, Ubicación, Referencia, Descripción, Cantidad Teórica. Admite archivos .xlsx, .xls o .csv exportados desde Excel.
+        Columnas esperadas: Centro, Ubicación, Referencia, Descripción, Cantidad Teórica. Admite archivos .xlsx, .xls o .csv exportados desde Excel. Lo que cargues aquí se verá en los demás dispositivos de este centro en unos segundos.
       </p>
       <input type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/octet-stream" onChange={onFile} />
       {error && <div className="error-box" style={{ marginTop: 12 }}>{error}</div>}
@@ -725,9 +752,9 @@ function SettingsTab({ user, centro, setCentro, isAdmin, onReset, onLogout }) {
         </div>
       </div>
       <p className="muted">Usuario conectado: <strong>{user.usuario}</strong>{isAdmin && <React.Fragment> &middot; <span className="badge" style={{ background: 'var(--info-bg)', color: 'var(--info-fg)' }}>ADMIN</span></React.Fragment>}</p>
-      <p><span className="storage-pill on">Guardado en este navegador</span></p>
+      <p><span className="storage-pill on">Stock compartido activo</span></p>
       <p className="muted" style={{ fontSize: 12.5 }}>
-        El stock teórico y las lecturas se guardan en este dispositivo/navegador, por centro. Si usas otro ordenador o tablet, o borras los datos de navegación, no verás lo cargado aquí.
+        El stock teórico se sincroniza entre dispositivos del mismo centro (tarda hasta {Math.round(POLL_MS / 1000)} segundos en los demás dispositivos, o pulsa "Actualizar ahora" en esa pestaña). Las lecturas del escáner se guardan solo en este dispositivo.
       </p>
       <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
         <button className="btn btn-danger" onClick={onReset}>Borrar stock teórico y lecturas de este centro</button>
@@ -781,52 +808,75 @@ function App() {
 
   const slug = centro ? slugify(centro) : null;
   const isAdmin = user && user.role === 'admin';
+  const [connError, setConnError] = useState('');
+
+  // Lecturas: solo en este dispositivo (localStorage), por centro.
+  useEffect(() => {
+    if (!slug) { setScans([]); return; }
+    try {
+      const raw = window.localStorage.getItem('scaitt-scans-' + slug);
+      setScans(raw ? JSON.parse(raw) : []);
+    } catch (err) { setScans([]); }
+  }, [slug]);
+
+  const persistScans = useCallback((next) => {
+    if (!slug) return;
+    try { window.localStorage.setItem('scaitt-scans-' + slug, JSON.stringify(next)); } catch (err) { /* no disponible */ }
+  }, [slug]);
+
+  // Stock teórico: compartido por centro en Supabase (se carga desde el PC y se ve en cualquier dispositivo).
+  const fetchStock = useCallback(async () => {
+    if (!slug) return;
+    try {
+      const row = await sbGetStock(slug);
+      setStock((row && row.stock) || []);
+      setFileName((row && row.file_name) || '');
+      setConnError('');
+    } catch (err) {
+      setConnError('No se pudo sincronizar el stock teórico.');
+    }
+  }, [slug]);
 
   useEffect(() => {
-    if (!slug) { setStock([]); setFileName(''); setScans([]); return; }
-    const data = loadLocal('scaitt-centro-' + slug, { stock: [], fileName: '', scans: [] });
-    setStock(data.stock || []);
-    setFileName(data.fileName || '');
-    setScans(data.scans || []);
-  }, [slug]);
-
-  const persist = useCallback((next) => {
-    if (!slug) return;
-    saveLocal('scaitt-centro-' + slug, next);
-  }, [slug]);
+    if (!slug) { setStock([]); setFileName(''); return; }
+    fetchStock();
+    const interval = setInterval(fetchStock, POLL_MS);
+    return () => clearInterval(interval);
+  }, [slug, fetchStock]);
 
   const handleUpload = useCallback((rows, name) => {
     setStock(rows); setFileName(name);
-    persist({ stock: rows, fileName: name, scans });
-  }, [persist, scans]);
+    sbUpsertStock(slug, rows, name).then(() => setConnError('')).catch(() => setConnError('No se pudo guardar el stock cargado.'));
+  }, [slug]);
 
   const handleClearStock = useCallback(() => {
     setStock([]); setFileName('');
-    persist({ stock: [], fileName: '', scans });
-  }, [persist, scans]);
+    sbUpsertStock(slug, [], '').then(() => setConnError('')).catch(() => setConnError('No se pudo borrar el stock.'));
+  }, [slug]);
 
   const handleSaveScan = useCallback((rec) => {
     const full = Object.assign({ id: 's' + Date.now() + Math.random().toString(36).slice(2), centro, ts: Date.now() }, rec);
     setScans((prev) => {
       const next = [full].concat(prev);
-      persist({ stock, fileName, scans: next });
+      persistScans(next);
       return next;
     });
-  }, [persist, stock, fileName, centro]);
+  }, [persistScans, centro]);
 
   const handleDeleteLastScan = useCallback(() => {
     setScans((prev) => {
       if (prev.length === 0) return prev;
       const next = prev.slice(1);
-      persist({ stock, fileName, scans: next });
+      persistScans(next);
       return next;
     });
-  }, [persist, stock, fileName]);
+  }, [persistScans]);
 
   const handleResetAll = useCallback(() => {
     setStock([]); setFileName(''); setScans([]);
-    persist({ stock: [], fileName: '', scans: [] });
-  }, [persist]);
+    persistScans([]);
+    sbUpsertStock(slug, [], '').catch(() => {});
+  }, [slug, persistScans]);
 
   if (!user) {
     return <LoginScreen users={users} onLogin={(u) => {
@@ -855,8 +905,9 @@ function App() {
         ))}
       </div>
       <div className="content">
+        {connError && <div className="error-box">{connError}</div>}
         {activeTab === 'scan' && <ScanTab scans={scans} onSave={handleSaveScan} onDeleteLast={handleDeleteLastScan} />}
-        {activeTab === 'upload' && <UploadTab stock={stock} fileName={fileName} onUpload={handleUpload} onClear={handleClearStock} />}
+        {activeTab === 'upload' && <UploadTab stock={stock} fileName={fileName} onUpload={handleUpload} onClear={handleClearStock} onRefresh={fetchStock} />}
         {activeTab === 'report' && <ReportTab stock={stock} scans={scans} centro={centro} />}
         {activeTab === 'users' && isAdmin && (
           <UsersTab
