@@ -145,6 +145,27 @@ async function sbDeleteScans(filter) {
   if (!res.ok) throw new Error('Supabase delete failed: ' + res.status);
 }
 
+async function sbGetUsers() {
+  const res = await fetch(SB_URL + '/rest/v1/usuarios?select=*&order=usuario', { headers: SB_HEADERS });
+  if (!res.ok) throw new Error('Supabase read failed: ' + res.status);
+  const rows = await res.json();
+  return rows.map((r) => ({ usuario: r.usuario, passwordHash: r.password_hash, role: r.role, centro: r.centro }));
+}
+
+async function sbUpsertUsers(list) {
+  const res = await fetch(SB_URL + '/rest/v1/usuarios', {
+    method: 'POST',
+    headers: Object.assign({}, SB_HEADERS, { Prefer: 'resolution=merge-duplicates,return=minimal' }),
+    body: JSON.stringify(list.map((u) => ({ usuario: u.usuario, password_hash: u.passwordHash, role: u.role, centro: u.centro || null })))
+  });
+  if (!res.ok) throw new Error('Supabase write failed: ' + res.status);
+}
+
+async function sbDeleteUser(usuario) {
+  const res = await fetch(SB_URL + '/rest/v1/usuarios?usuario=eq.' + encodeURIComponent(usuario), { method: 'DELETE', headers: SB_HEADERS });
+  if (!res.ok) throw new Error('Supabase delete failed: ' + res.status);
+}
+
 async function sbUpsertStock(slug, stock, fileName) {
   const res = await fetch(SB_URL + '/rest/v1/centro_stock', {
     method: 'POST',
@@ -919,20 +940,58 @@ function App() {
   const [scans, setScans] = useState([]);
   const [users, setUsers] = useState(() => loadUsers());
 
+  // Usuarios: guardados en Supabase; en este dispositivo solo queda una copia para poder entrar sin conexión.
+  const [usersError, setUsersError] = useState('');
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      // Primera vez en este dispositivo: si aquí se gestionaron usuarios (versión anterior), se suben al servidor.
+      if (!loadLocal('scaitt-users-synced', false)) {
+        const localEdits = loadLocal(USERS_KEY, null);
+        if (Array.isArray(localEdits) && localEdits.length) await sbUpsertUsers(localEdits);
+        saveLocal('scaitt-users-synced', true);
+      }
+      let list = await sbGetUsers();
+      if (list.length === 0) {
+        await sbUpsertUsers(BASE_USERS);
+        list = await sbGetUsers();
+      }
+      setUsers(list);
+      saveUsers(list);
+      setUsersError('');
+    } catch (err) { /* sin conexión: se usa la copia local */ }
+  }, []);
+
+  useEffect(() => {
+    fetchUsers();
+    const interval = setInterval(fetchUsers, POLL_MS);
+    return () => clearInterval(interval);
+  }, [fetchUsers]);
+
   const handleAddUser = useCallback((newUser) => {
     setUsers((prev) => { const next = prev.concat([newUser]); saveUsers(next); return next; });
+    sbUpsertUsers([newUser]).then(() => setUsersError('')).catch(() => setUsersError('No se pudo guardar el usuario en el servidor.'));
   }, []);
 
   const handleUpdatePassword = useCallback((usuario, newPasswordHash) => {
+    let changed = null;
     setUsers((prev) => {
-      const next = prev.map((u) => (u.usuario === usuario ? Object.assign({}, u, { passwordHash: newPasswordHash }) : u));
+      const next = prev.map((u) => {
+        if (u.usuario !== usuario) return u;
+        changed = Object.assign({}, u, { passwordHash: newPasswordHash });
+        return changed;
+      });
       saveUsers(next);
       return next;
     });
+    setTimeout(() => {
+      if (changed) sbUpsertUsers([changed]).then(() => setUsersError('')).catch(() => setUsersError('No se pudo guardar la contraseña en el servidor.'));
+    }, 0);
   }, []);
 
   const handleDeleteUser = useCallback((usuario) => {
     setUsers((prev) => { const next = prev.filter((u) => u.usuario !== usuario); saveUsers(next); return next; });
+    sbDeleteUser(usuario).then(() => setUsersError('')).catch(() => setUsersError('No se pudo borrar el usuario en el servidor.'));
   }, []);
 
   const slug = centro ? slugify(centro) : null;
@@ -1071,6 +1130,7 @@ function App() {
       </div>
       <div className="content">
         {connError && <div className="error-box">{connError}</div>}
+        {usersError && activeTab === 'users' && <div className="error-box">{usersError}</div>}
         {activeTab === 'scan' && <ScanTab scans={scans} onSave={handleSaveScan} onDeleteLast={handleDeleteLastScan} />}
         {activeTab === 'upload' && <UploadTab stock={stock} fileName={fileName} onUpload={handleUpload} onClear={handleClearStock} onRefresh={refreshAll} />}
         {activeTab === 'report' && <ReportTab stock={stock} scans={scans} centro={centro} usuario={user.usuario} />}
