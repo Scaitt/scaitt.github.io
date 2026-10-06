@@ -441,13 +441,14 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
     const qty = cantidad.trim() === '' ? 1 : (parseFloat(String(cantidad).replace(',', '.')) || 1);
     setSaveError('');
     onSave({ ubicacion: ubicacion.trim(), referencia: referencia.trim(), cantidad: qty });
+    setUbicacion('');
     setReferencia('');
     setCantidad('');
     setFlash(true);
     beep();
     clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setFlash(false), 350);
-    setTimeout(() => { if (refReferencia.current) refReferencia.current.focus(); }, 0);
+    setTimeout(() => { if (refUbicacion.current) refUbicacion.current.focus(); }, 0);
   };
 
   const recent = scans.slice(0, 5);
