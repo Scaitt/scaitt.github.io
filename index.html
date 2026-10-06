@@ -206,6 +206,14 @@ function findKey(row, substr) {
   return Object.keys(row).find((k) => k.toLowerCase().indexOf(substr) !== -1);
 }
 
+function findKeyAny(row, substrs) {
+  for (let i = 0; i < substrs.length; i++) {
+    const k = findKey(row, substrs[i]);
+    if (k) return k;
+  }
+  return undefined;
+}
+
 function parseWorkbook(arrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -216,7 +224,7 @@ function parseWorkbook(arrayBuffer) {
       const kUbic = findKey(row, 'ubicac');
       const kRef = findKey(row, 'referenc');
       const kDesc = findKey(row, 'descrip');
-      const kCant = findKey(row, 'cantidad');
+      const kCant = findKeyAny(row, ['cantidad', 'stock', 'piezas', 'existenc', 'uds', 'unidades', 'cant.']);
       return {
         centro: kCentro ? String(row[kCentro]).trim() : '',
         ubicacion: kUbic ? String(row[kUbic]).trim() : '',
