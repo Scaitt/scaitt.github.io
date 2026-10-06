@@ -236,9 +236,16 @@ function parseWorkbook(arrayBuffer) {
     .filter((r) => r.referencia);
 }
 
+function normCode(s) {
+  return String(s == null ? '' : s).trim().toUpperCase();
+}
+
 function computeReconciliation(stock, scans, centro) {
-  const theo = stock.filter((r) => r.centro === centro);
-  const centroScans = scans.filter((r) => r.centro === centro);
+  // El stock ya se guarda por centro; una fila sin centro pertenece al centro actual.
+  const slug = slugify(centro);
+  const norm = (r) => Object.assign({}, r, { ubicacion: normCode(r.ubicacion), referencia: normCode(r.referencia) });
+  const theo = stock.filter((r) => !r.centro || slugify(r.centro) === slug).map(norm);
+  const centroScans = scans.filter((r) => slugify(r.centro || centro) === slug).map(norm);
 
   const scannedMap = {};
   centroScans.forEach((s) => {
@@ -591,7 +598,6 @@ function buildStyledSheet(title, subtitle, summary, cols, rows) {
         fill: { fgColor: { rgb: st ? st.bg : zebra } }, border: XL_BORDERS,
         alignment: { horizontal: cols[ci].num ? 'right' : 'left', vertical: 'center' }
       };
-      if (cols[ci].num) style.numFmt = '#,##0.##';
       return xlCell(v === undefined || v === null ? '' : v, style);
     }));
   });
@@ -947,10 +953,11 @@ function App() {
     return () => clearInterval(interval);
   }, [slug, fetchStock]);
 
-  const handleUpload = useCallback((rows, name) => {
+  const handleUpload = useCallback((parsed, name) => {
+    const rows = parsed.map((r) => (r.centro ? r : Object.assign({}, r, { centro: centro })));
     setStock(rows); setFileName(name);
     sbUpsertStock(slug, rows, name).then(() => setConnError('')).catch(() => setConnError('No se pudo guardar el stock cargado.'));
-  }, [slug]);
+  }, [slug, centro]);
 
   const handleClearStock = useCallback(() => {
     setStock([]); setFileName('');
