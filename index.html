@@ -63,7 +63,8 @@
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 22px; margin-bottom: 18px; transition: background 0.2s, border-color 0.2s; }
   .card.flash { background: var(--ok-bg); border-color: var(--ok-fg); }
   .card h2 { margin: 0 0 16px; font-size: 18px; font-weight: 700; }
-  .btn { appearance: none; border: 1px solid transparent; border-radius: 8px; font-weight: 700; font-size: 15px; padding: 14px 20px; min-height: 52px; cursor: pointer; }
+  .btn { appearance: none; border: 1px solid transparent; border-radius: 8px; font-weight: 700; font-size: 15px; padding: 14px 20px; min-height: 52px; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  .keypad .btn:active { background: var(--surface-2); }
   .btn-primary { background: var(--accent); color: var(--accent-fg); }
   .btn-secondary { background: var(--surface-2); color: var(--fg); border-color: var(--border); }
   .btn-outline { background: transparent; border-color: var(--fg); color: var(--fg); }
@@ -529,12 +530,12 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
           <div className="field">
             <label htmlFor="in-cant">{comercial ? '2.' : '3.'} Cantidad</label>
             <input id="in-cant" ref={refCantidad} value={cantidad}
-              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" inputMode="decimal"
+              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" inputMode={comercial ? 'none' : 'decimal'}
               onChange={(e) => setCantidad(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); } }}
               placeholder="1" />
             {comercial && (
-              <div className="keypad">
+              <div className="keypad" onMouseDown={(e) => e.preventDefault()}>
                 <button type="button" className="btn btn-outline" onClick={() => stepQty(-1)}>−</button>
                 <button type="button" className="btn btn-outline" onClick={() => stepQty(1)}>+</button>
                 <button type="button" className="btn btn-outline" onClick={() => setCantidad('')}>C</button>
