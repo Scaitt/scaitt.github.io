@@ -69,6 +69,7 @@
   .btn-secondary { background: var(--surface-2); color: var(--fg); border-color: var(--border); }
   .btn-outline { background: transparent; border-color: var(--fg); color: var(--fg); }
   .btn-danger { background: var(--crit-fg); color: #FFF; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-small { padding: 7px 12px; min-height: auto; font-size: 13px; border-radius: 6px; }
   .field { display: flex; flex-direction: column; gap: 6px; }
   .field label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
@@ -954,7 +955,8 @@ function ClientPicker({ current, onPick }) {
 
   const add = async () => {
     const name = nuevo.trim();
-    if (!name) return;
+    if (!name) { setError('Escribe el nombre del cliente.'); return; }
+    setError('');
     setBusy(true);
     try {
       const list = await sbGetClientes();
@@ -971,6 +973,7 @@ function ClientPicker({ current, onPick }) {
   return (
     <div className="card">
       <h2>Elegir cliente</h2>
+      {!current && <div className="error-box" style={{ background: 'var(--info-bg)', color: 'var(--info-fg)', borderColor: 'var(--info-fg)' }}>Elige o crea un cliente para empezar.</div>}
       <p className="muted" style={{ marginTop: -8 }}>Cada cliente tiene su propio stock cedido, sus lecturas y su informe.</p>
       {error && <div className="error-box">{error}</div>}
       {clientes === null && <div className="muted">Cargando clientes…</div>}
@@ -987,7 +990,7 @@ function ClientPicker({ current, onPick }) {
         <div style={{ display: 'flex', gap: 10 }}>
           <input id="new-cli" value={nuevo} onChange={(e) => setNuevo(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') add(); }} placeholder="Nombre del cliente" />
-          <button className="btn btn-primary" onClick={add} disabled={busy || !nuevo.trim()}>{busy ? '…' : 'Añadir'}</button>
+          <button className="btn btn-primary" onClick={add} disabled={busy}>{busy ? '…' : 'Añadir'}</button>
         </div>
       </div>
     </div>
@@ -1007,7 +1010,7 @@ function SettingsTab({ user, centro, setCentro, isAdmin, isComercial, onChangeCl
           </select>
         ) : (
           <div style={{ fontSize: 18, fontWeight: 700, padding: '13px 14px', border: '1.5px solid var(--border)', borderRadius: 8, background: 'var(--surface-2)' }}>
-            {centro}
+            {centro || 'Sin elegir'}
           </div>
         )}
         {isComercial
@@ -1022,7 +1025,7 @@ function SettingsTab({ user, centro, setCentro, isAdmin, isComercial, onChangeCl
         El stock teórico y las lecturas se guardan en el servidor y se ven en todos los dispositivos del mismo {lugar} (tarda hasta {Math.round(POLL_MS / 1000)} segundos, o pulsa "Actualizar ahora" en la pestaña de stock). Si se pierde la conexión, las lecturas se guardan en el dispositivo y se suben solas al volver.
       </p>
       <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
-        <button className="btn btn-danger" onClick={() => { if (window.confirm('Se borrará el stock teórico y TODAS las lecturas de ' + centro + ' en todos los dispositivos. ¿Continuar?')) onReset(); }}>Borrar stock teórico y lecturas de este {lugar}</button>
+        {centro && <button className="btn btn-danger" onClick={() => { if (window.confirm('Se borrará el stock teórico y TODAS las lecturas de ' + centro + ' en todos los dispositivos. ¿Continuar?')) onReset(); }}>Borrar stock teórico y lecturas de este {lugar}</button>}
         <button className="btn btn-outline" onClick={onLogout}>Cerrar sesión</button>
       </div>
     </div>
@@ -1220,7 +1223,7 @@ function App() {
     sbDeleteScans('centro_slug=eq.' + encodeURIComponent(slug)).catch(() => setConnError('No se pudieron borrar las lecturas en el servidor.'));
   }, [slug, pendingKey]);
 
-  const showPicker = isComercial && (pickingCliente || !centro);
+  const showPicker = isComercial && (pickingCliente || (!centro && activeTab !== 'settings'));
 
   if (!user) {
     return <LoginScreen users={users} onLogin={(u) => {
@@ -1244,7 +1247,7 @@ function App() {
       <div className="tabs">
         {TABS.concat(isAdmin ? [{ id: 'users', label: 'Usuarios' }] : []).map((t) => (
           <button key={t.id} className={activeTab === t.id && !showPicker ? 'tab-btn active' : 'tab-btn'}
-            onClick={() => { setActiveTab(t.id); setPickingCliente(false); }} disabled={isComercial && !centro}>
+            onClick={() => { setActiveTab(t.id); setPickingCliente(false); }}>
             {isComercial && t.id === 'settings' ? 'Ajustes / Cliente' : t.label}
           </button>
         ))}
