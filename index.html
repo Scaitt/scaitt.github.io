@@ -75,6 +75,9 @@
   input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(11, 110, 110, 0.25); }
   input[type="file"] { min-height: auto; padding: 10px; font-size: 14px; }
   .scan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .scan-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
+  .keypad .btn { min-height: 46px; padding: 0; font-size: 20px; font-weight: 700; justify-content: center; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
   th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; }
@@ -97,7 +100,7 @@
   .storage-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; }
   .storage-pill.on { background: var(--ok-bg); color: var(--ok-fg); }
   @media (max-width: 760px) {
-    .scan-grid { grid-template-columns: 1fr; }
+    .scan-grid, .scan-grid.two { grid-template-columns: 1fr; }
     .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 </style>
@@ -166,6 +169,13 @@ async function sbDeleteUser(usuario) {
   if (!res.ok) throw new Error('Supabase delete failed: ' + res.status);
 }
 
+// Lista de clientes del usuario comercial: se guarda como una fila especial de centro_stock.
+const CLIENTES_SLUG = '__clientes__';
+async function sbGetClientes() {
+  const row = await sbGetStock(CLIENTES_SLUG);
+  return (row && Array.isArray(row.stock)) ? row.stock : [];
+}
+
 async function sbUpsertStock(slug, stock, fileName) {
   const res = await fetch(SB_URL + '/rest/v1/centro_stock', {
     method: 'POST',
@@ -186,6 +196,7 @@ const BASE_USERS = [
   { usuario: 'cimvalles', passwordHash: 'e2a7c43241e680029d0522a95b306ae77298c15c1ebd16aaea3a715dd63f4a1a', centro: 'CIM Vallés', role: 'centro' },
   { usuario: 'lleida', passwordHash: '812e6803a171d3545c9c3a1ae2fb88d565f6d1138159e9cbd843b45cc3faf863', centro: 'Lleida', role: 'centro' },
   { usuario: 'manresa', passwordHash: '17a3ee434e2c9b3873684c252851c64bcb906d486d1ccf3d19c38c1b8332ead8', centro: 'Manresa', role: 'centro' },
+  { usuario: 'comercial', passwordHash: '5b40bcefa1d0290ce7127f2e1388892f4c1f5043d41e87c6d7d1daf72d069343', centro: null, role: 'comercial' },
   { usuario: 'admin', passwordHash: '9c4a8ac7f759f78efa494345bd889a1e9a97c005733a2f173787e8cc5567b1e3', centro: null, role: 'admin' }
 ];
 
@@ -255,8 +266,16 @@ function findKeyAny(row, substrs) {
   return undefined;
 }
 
-function parseWorkbook(arrayBuffer) {
-  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+function parseWorkbook(arrayBuffer, isCsv) {
+  let wb = null;
+  if (isCsv) {
+    // CSV en UTF-8: se lee como texto para no romper acentos. Si no es UTF-8 válido (p. ej. Windows-1252), se lee como antes.
+    try {
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(arrayBuffer);
+      wb = XLSX.read(text.replace(/^﻿/, ''), { type: 'string' });
+    } catch (err) { wb = null; }
+  }
+  if (!wb) wb = XLSX.read(arrayBuffer, { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
   return raw
@@ -281,12 +300,22 @@ function normCode(s) {
   return String(s == null ? '' : s).trim().toUpperCase();
 }
 
-function computeReconciliation(stock, scans, centro) {
+// byRef: compara solo por referencia, sin ubicaciones (stock cedido a clientes, usuario comercial).
+function computeReconciliation(stock, scans, centro, byRef) {
   // El stock ya se guarda por centro; una fila sin centro pertenece al centro actual.
   const slug = slugify(centro);
-  const norm = (r) => Object.assign({}, r, { ubicacion: normCode(r.ubicacion), referencia: normCode(r.referencia) });
-  const theo = stock.filter((r) => !r.centro || slugify(r.centro) === slug).map(norm);
+  const norm = (r) => Object.assign({}, r, { ubicacion: byRef ? '' : normCode(r.ubicacion), referencia: normCode(r.referencia) });
+  let theo = stock.filter((r) => !r.centro || slugify(r.centro) === slug).map(norm);
   const centroScans = scans.filter((r) => slugify(r.centro || centro) === slug).map(norm);
+  if (byRef) {
+    // Una fila por referencia, sumando cantidades si aparece varias veces en el Excel.
+    const byKey = {};
+    theo.forEach((t) => {
+      if (byKey[t.referencia]) byKey[t.referencia].cantidad += t.cantidad;
+      else byKey[t.referencia] = Object.assign({}, t);
+    });
+    theo = Object.keys(byKey).map((k) => byKey[k]);
+  }
 
   const scannedMap = {};
   centroScans.forEach((s) => {
@@ -403,7 +432,8 @@ function LoginScreen({ users, onLogin }) {
   );
 }
 
-function ScanTab({ scans, onSave, onDeleteLast }) {
+function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
+  // comercial: sin ubicación (stock cedido a clientes) y con teclado numérico en pantalla.
   const [ubicacion, setUbicacion] = useState('');
   const [referencia, setReferencia] = useState('');
   const [cantidad, setCantidad] = useState('');
@@ -434,13 +464,13 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
   const [saveError, setSaveError] = useState('');
 
   const save = () => {
-    if (!ubicacion.trim() || !referencia.trim()) {
-      setSaveError('Indica ubicación y referencia antes de guardar.');
+    if (!referencia.trim() || (!comercial && !ubicacion.trim())) {
+      setSaveError(comercial ? 'Indica la referencia antes de guardar.' : 'Indica ubicación y referencia antes de guardar.');
       return;
     }
     const qty = cantidad.trim() === '' ? 1 : (parseFloat(String(cantidad).replace(',', '.')) || 1);
     setSaveError('');
-    onSave({ ubicacion: ubicacion.trim(), referencia: referencia.trim(), cantidad: qty });
+    onSave({ ubicacion: comercial ? '' : ubicacion.trim(), referencia: referencia.trim(), cantidad: qty });
     setUbicacion('');
     setReferencia('');
     setCantidad('');
@@ -448,7 +478,15 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
     beep();
     clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setFlash(false), 350);
-    setTimeout(() => { if (refUbicacion.current) refUbicacion.current.focus(); }, 0);
+    setTimeout(() => {
+      const next = comercial ? refReferencia.current : refUbicacion.current;
+      if (next) next.focus();
+    }, 0);
+  };
+
+  const stepQty = (d) => {
+    const cur = cantidad.trim() === '' ? 1 : (parseFloat(cantidad.replace(',', '.')) || 0);
+    setCantidad(String(Math.max(1, cur + d)));
   };
 
   const recent = scans.slice(0, 5);
@@ -456,9 +494,9 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
   return (
     <React.Fragment>
       <div className={flash ? 'card flash' : 'card'}>
-        <h2>Lectura con pistola</h2>
-        <div className="scan-grid">
-          <div className="field">
+        <h2>{comercial ? 'Recuento de stock cedido' : 'Lectura con pistola'}</h2>
+        <div className={comercial ? 'scan-grid two' : 'scan-grid'}>
+          {!comercial && <div className="field">
             <label htmlFor="in-ubi">1. Ubicación</label>
             <input id="in-ubi" ref={refUbicacion} value={ubicacion}
               autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
@@ -472,9 +510,9 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
                 }
               }}
               placeholder="Escanear ubicación" />
-          </div>
+          </div>}
           <div className="field">
-            <label htmlFor="in-ref">2. Referencia</label>
+            <label htmlFor="in-ref">{comercial ? '1.' : '2.'} Referencia</label>
             <input id="in-ref" ref={refReferencia} value={referencia}
               autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
               onChange={(e) => setReferencia(e.target.value)}
@@ -489,20 +527,33 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
               placeholder="Escanear referencia" />
           </div>
           <div className="field">
-            <label htmlFor="in-cant">3. Cantidad</label>
+            <label htmlFor="in-cant">{comercial ? '2.' : '3.'} Cantidad</label>
             <input id="in-cant" ref={refCantidad} value={cantidad}
               autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" inputMode="decimal"
               onChange={(e) => setCantidad(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); } }}
               placeholder="1" />
+            {comercial && (
+              <div className="keypad">
+                <button type="button" className="btn btn-outline" onClick={() => stepQty(-1)}>−</button>
+                <button type="button" className="btn btn-outline" onClick={() => stepQty(1)}>+</button>
+                <button type="button" className="btn btn-outline" onClick={() => setCantidad('')}>C</button>
+                {['7', '8', '9', '4', '5', '6', '1', '2', '3', ',', '0'].map((k) => (
+                  <button key={k} type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c + k)}>{k}</button>
+                ))}
+                <button type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c.slice(0, -1))}>⌫</button>
+              </div>
+            )}
           </div>
         </div>
         {saveError && <div className="error-box" style={{ marginTop: 16 }}>{saveError}</div>}
         <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="btn btn-primary" onClick={save}>Guardar lectura</button>
-          <button className="btn btn-outline" onClick={() => { setUbicacion(''); refUbicacion.current && refUbicacion.current.focus(); }}>
-            Limpiar ubicación
-          </button>
+          {!comercial && (
+            <button className="btn btn-outline" onClick={() => { setUbicacion(''); refUbicacion.current && refUbicacion.current.focus(); }}>
+              Limpiar ubicación
+            </button>
+          )}
           <div className="muted" style={{ marginLeft: 'auto' }}>Lecturas registradas: <strong>{scans.length}</strong></div>
         </div>
       </div>
@@ -512,7 +563,7 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
         {recent.length === 0 && <div className="muted">Todavía no hay lecturas registradas.</div>}
         {recent.map((r, i) => (
           <div className="history-row" key={r.id}>
-            <div><strong>{r.referencia}</strong> &middot; <code>{r.ubicacion}</code> &middot; x{r.cantidad}</div>
+            <div><strong>{r.referencia}</strong>{r.ubicacion && <React.Fragment> &middot; <code>{r.ubicacion}</code></React.Fragment>} &middot; x{r.cantidad}</div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <span className="muted" style={{ fontSize: 12.5 }}>{new Date(r.ts).toLocaleTimeString()}</span>
               {i === 0 && (
@@ -526,7 +577,7 @@ function ScanTab({ scans, onSave, onDeleteLast }) {
   );
 }
 
-function UploadTab({ stock, fileName, onUpload, onClear, onRefresh }) {
+function UploadTab({ stock, fileName, onUpload, onClear, onRefresh, comercial }) {
   const [error, setError] = useState('');
 
   const onFile = (e) => {
@@ -535,7 +586,7 @@ function UploadTab({ stock, fileName, onUpload, onClear, onRefresh }) {
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const rows = parseWorkbook(ev.target.result);
+        const rows = parseWorkbook(ev.target.result, /\.csv$/i.test(file.name));
         if (rows.length === 0) { setError('No se han encontrado filas válidas en el archivo.'); return; }
         setError('');
         onUpload(rows, file.name);
@@ -557,7 +608,9 @@ function UploadTab({ stock, fileName, onUpload, onClear, onRefresh }) {
         <button className="btn btn-outline btn-small" onClick={onRefresh}>Actualizar ahora</button>
       </div>
       <p className="muted" style={{ marginTop: -8 }}>
-        Columnas esperadas: Centro, Ubicación, Referencia, Descripción, Cantidad Teórica. Admite archivos .xlsx, .xls o .csv exportados desde Excel. Lo que cargues aquí se verá en los demás dispositivos de este centro en unos segundos.
+        {comercial
+          ? 'Columnas esperadas: Referencia, Descripción y Cantidad (la ubicación no hace falta). Admite archivos .xlsx, .xls o .csv. Este Excel es el stock cedido al cliente seleccionado.'
+          : 'Columnas esperadas: Centro, Ubicación, Referencia, Descripción, Cantidad Teórica. Admite archivos .xlsx, .xls o .csv exportados desde Excel. Lo que cargues aquí se verá en los demás dispositivos de este centro en unos segundos.'}
       </p>
       <input type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/octet-stream" onChange={onFile} />
       {error && <div className="error-box" style={{ marginTop: 12 }}>{error}</div>}
@@ -566,16 +619,16 @@ function UploadTab({ stock, fileName, onUpload, onClear, onRefresh }) {
           <div className="kpi-grid" style={{ marginTop: 20 }}>
             <div className="kpi"><div className="num">{stock.length}</div><div className="label">Filas cargadas</div></div>
             <div className="kpi"><div className="num">{totalUnits}</div><div className="label">Unidades teóricas</div></div>
-            <div className="kpi"><div className="num">{totalCentros}</div><div className="label">Centros en el archivo</div></div>
+            {!comercial && <div className="kpi"><div className="num">{totalCentros}</div><div className="label">Centros en el archivo</div></div>}
             <div className="kpi" style={{ fontSize: 13 }}><div className="num" style={{ fontSize: 16 }}>{fileName || '-'}</div><div className="label">Archivo cargado</div></div>
           </div>
           <div className="table-wrap" style={{ marginTop: 16, maxHeight: 420, overflowY: 'auto' }}>
             <table>
-              <thead><tr><th>Centro</th><th>Ubicación</th><th>Referencia</th><th>Descripción</th><th className="num">Cant. Teórica</th></tr></thead>
+              <thead><tr><th>{comercial ? 'Cliente' : 'Centro'}</th>{!comercial && <th>Ubicación</th>}<th>Referencia</th><th>Descripción</th><th className="num">Cant. Teórica</th></tr></thead>
               <tbody>
                 {stock.map((row, i) => (
                   <tr key={i}>
-                    <td>{row.centro}</td><td>{row.ubicacion}</td><td>{row.referencia}</td><td>{row.descripcion}</td>
+                    <td>{row.centro}</td>{!comercial && <td>{row.ubicacion}</td>}<td>{row.referencia}</td><td>{row.descripcion}</td>
                     <td className="num">{row.cantidad}</td>
                   </tr>
                 ))}
@@ -666,54 +719,56 @@ function downloadWorkbook(filename, sheets) {
   URL.revokeObjectURL(url);
 }
 
-function ReportTab({ stock, scans, centro, usuario }) {
+function ReportTab({ stock, scans, centro, usuario, comercial }) {
   const [filter, setFilter] = useState('all');
-  const results = useMemo(() => computeReconciliation(stock, scans, centro), [stock, scans, centro]);
+  const results = useMemo(() => computeReconciliation(stock, scans, centro, comercial), [stock, scans, centro, comercial]);
   const filtered = filter === 'all' ? results : results.filter((r) => r.status === filter);
 
   const theoCount = results.filter((r) => r.status !== 'inesperado').length;
   const okCount = results.filter((r) => r.status === 'ok').length;
   const pct = theoCount > 0 ? Math.round((okCount / theoCount) * 100) : 0;
   const desubicadas = results.filter((r) => r.status === 'desubicado').length;
+  const descuadres = results.filter((r) => r.status === 'descuadre').length;
   const faltantes = results.filter((r) => r.status === 'faltante').length;
   const totalLeidos = scans.filter((r) => r.centro === centro).reduce((sum, r) => sum + r.cantidad, 0);
 
   const exportExcel = () => {
     const now = new Date();
     const fecha = now.toLocaleDateString('es-ES') + ' ' + now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-    const subtitle = 'Centro: ' + centro + '   ·   Generado: ' + fecha + (usuario ? '   ·   Por: ' + usuario : '');
+    const subtitle = (comercial ? 'Cliente: ' : 'Centro: ') + centro + '   ·   Generado: ' + fecha + (usuario ? '   ·   Por: ' + usuario : '');
     const count = (st) => results.filter((r) => r.status === st).length;
 
     const recCols = [
-      { header: 'Estado', width: 22 }, { header: 'Referencia', width: 18 }, { header: 'Descripción', width: 36 },
-      { header: 'Ubicación teórica', width: 18 }, { header: 'Ubicación real', width: 18 },
+      { header: 'Estado', width: 22 }, { header: 'Referencia', width: 18 }, { header: 'Descripción', width: 36 }
+    ].concat(comercial ? [] : [{ header: 'Ubicación teórica', width: 18 }, { header: 'Ubicación real', width: 18 }]).concat([
       { header: 'Cant. teórica', width: 13, num: true }, { header: 'Cant. física', width: 13, num: true },
       { header: 'Diferencia', width: 12, num: true }
-    ];
+    ]);
     const recRows = results.map((r) => {
       const meta = STATUS_META[r.status] || STATUS_META.faltante;
       const teo = Number(r.cantidadTeorica) || 0;
       const fis = Number(r.cantidadFisica) || 0;
-      return { status: r.status, statusCol: 0, values: [meta.label, r.referencia, r.descripcion, r.ubicacionTeorica, r.ubicacionReal, teo, fis, fis - teo] };
+      const ubic = comercial ? [] : [r.ubicacionTeorica, r.ubicacionReal];
+      return { status: r.status, statusCol: 0, values: [meta.label, r.referencia, r.descripcion].concat(ubic, [teo, fis, fis - teo]) };
     });
     const summary = [
       ['Total unidades leídas', totalLeidos], ['% Coincidencia', pct + '%'],
-      ['OK', count('ok')], ['Descuadre cantidad', count('descuadre')], ['Desubicado (crítico)', count('desubicado')],
+      ['OK', count('ok')], ['Descuadre cantidad', count('descuadre')]
+    ].concat(comercial ? [] : [['Desubicado (crítico)', count('desubicado')]]).concat([
       ['Referencia inesperada', count('inesperado')], ['Faltante', count('faltante')]
-    ];
-    const recSheet = buildStyledSheet('SCAITT · Informe de reconciliación de stock', subtitle, summary, recCols, recRows);
+    ]);
+    const recSheet = buildStyledSheet(comercial ? 'SCAITT · Informe de stock cedido' : 'SCAITT · Informe de reconciliación de stock', subtitle, summary, recCols, recRows);
 
-    const lecCols = [
-      { header: 'Fecha y hora', width: 18 }, { header: 'Ubicación', width: 18 },
-      { header: 'Referencia', width: 18 }, { header: 'Cantidad', width: 12, num: true }
-    ];
+    const lecCols = [{ header: 'Fecha y hora', width: 18 }]
+      .concat(comercial ? [] : [{ header: 'Ubicación', width: 18 }])
+      .concat([{ header: 'Referencia', width: 18 }, { header: 'Cantidad', width: 12, num: true }]);
     const lecRows = scans.filter((s) => s.centro === centro).slice().reverse().map((s) => ({
-      values: [s.ts ? new Date(s.ts).toLocaleString('es-ES') : '', s.ubicacion, s.referencia, Number(s.cantidad) || 0]
+      values: [s.ts ? new Date(s.ts).toLocaleString('es-ES') : ''].concat(comercial ? [] : [s.ubicacion], [s.referencia, Number(s.cantidad) || 0])
     }));
     const lecSheet = buildStyledSheet('SCAITT · Lecturas registradas', subtitle, [], lecCols, lecRows);
 
     const stamp = now.toISOString().slice(0, 10);
-    downloadWorkbook('SCAITT_reconciliacion_' + centro.replace(/\s+/g, '_') + '_' + stamp + '.xlsx',
+    downloadWorkbook((comercial ? 'SCAITT_stock_cedido_' : 'SCAITT_reconciliacion_') + centro.replace(/\s+/g, '_') + '_' + stamp + '.xlsx',
       [['Reconciliación', recSheet], ['Lecturas', lecSheet]]);
   };
 
@@ -722,7 +777,9 @@ function ReportTab({ stock, scans, centro, usuario }) {
       <div className="kpi-grid">
         <div className="kpi"><div className="num">{totalLeidos}</div><div className="label">Total unidades leídas</div></div>
         <div className="kpi"><div className="num">{pct}%</div><div className="label">% Coincidencia</div></div>
-        <div className="kpi"><div className="num">{desubicadas}</div><div className="label">Referencias desubicadas</div></div>
+        {comercial
+          ? <div className="kpi"><div className="num">{descuadres}</div><div className="label">Referencias con descuadre</div></div>
+          : <div className="kpi"><div className="num">{desubicadas}</div><div className="label">Referencias desubicadas</div></div>}
         <div className="kpi"><div className="num">{faltantes}</div><div className="label">Referencias faltantes</div></div>
       </div>
       <div className="card">
@@ -733,7 +790,7 @@ function ReportTab({ stock, scans, centro, usuario }) {
               <option value="all">Todos los estados</option>
               <option value="ok">OK</option>
               <option value="descuadre">Descuadre de cantidad</option>
-              <option value="desubicado">Desubicado (crítico)</option>
+              {!comercial && <option value="desubicado">Desubicado (crítico)</option>}
               <option value="inesperado">Referencia inesperada</option>
               <option value="faltante">Faltante</option>
             </select>
@@ -745,14 +802,14 @@ function ReportTab({ stock, scans, centro, usuario }) {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Estado</th><th>Referencia</th><th>Descripción</th><th>Ubic. Teórica</th><th>Ubic. Real</th><th className="num">Cant. Teórica</th><th className="num">Cant. Física</th></tr>
+                <tr><th>Estado</th><th>Referencia</th><th>Descripción</th>{!comercial && <th>Ubic. Teórica</th>}{!comercial && <th>Ubic. Real</th>}<th className="num">Cant. Teórica</th><th className="num">Cant. Física</th></tr>
               </thead>
               <tbody>
                 {filtered.map((row, i) => (
                   <tr key={i}>
                     <td><Badge status={row.status} /></td>
                     <td>{row.referencia}</td><td>{row.descripcion}</td>
-                    <td>{row.ubicacionTeorica}</td><td>{row.ubicacionReal}</td>
+                    {!comercial && <td>{row.ubicacionTeorica}</td>}{!comercial && <td>{row.ubicacionReal}</td>}
                     <td className="num">{row.cantidadTeorica}</td><td className="num">{row.cantidadFisica}</td>
                   </tr>
                 ))}
@@ -781,7 +838,7 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
     setBusy(true);
     const passwordHash = await sha256Hex(password);
     setBusy(false);
-    onAdd({ usuario: uname, passwordHash: passwordHash, centro: role === 'admin' ? null : centroSel, role: role });
+    onAdd({ usuario: uname, passwordHash: passwordHash, centro: role === 'centro' ? centroSel : null, role: role });
     setUsuario(''); setPassword(''); setRole('centro'); setCentroSel(CENTROS[0]); setError('');
   };
 
@@ -813,6 +870,7 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
             <label htmlFor="nu-role">Rol</label>
             <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="centro">Centro</option>
+              <option value="comercial">Comercial (stock cedido a clientes)</option>
               <option value="admin">Administrador</option>
             </select>
           </div>
@@ -837,8 +895,8 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
               {users.map((u) => (
                 <tr key={u.usuario}>
                   <td>{u.usuario}</td>
-                  <td>{u.role === 'admin' ? <span className="badge" style={{ background: 'var(--info-bg)', color: 'var(--info-fg)' }}>ADMIN</span> : 'Centro'}</td>
-                  <td>{u.centro || '-'}</td>
+                  <td>{u.role === 'admin' ? <span className="badge" style={{ background: 'var(--info-bg)', color: 'var(--info-fg)' }}>ADMIN</span> : (u.role === 'comercial' ? 'Comercial' : 'Centro')}</td>
+                  <td>{u.role === 'comercial' ? 'Sus clientes' : (u.centro || '-')}</td>
                   <td>
                     {editingPw[u.usuario] === undefined ? (
                       <span className="muted">cifrada</span>
@@ -883,12 +941,65 @@ function UsersTab({ users, currentUser, onAdd, onUpdatePassword, onDelete }) {
   );
 }
 
-function SettingsTab({ user, centro, setCentro, isAdmin, onReset, onLogout }) {
+function ClientPicker({ current, onPick }) {
+  const [clientes, setClientes] = useState(null);
+  const [nuevo, setNuevo] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    sbGetClientes().then(setClientes).catch(() => { setClientes([]); setError('No se pudo cargar la lista de clientes.'); });
+  }, []);
+
+  const add = async () => {
+    const name = nuevo.trim();
+    if (!name) return;
+    setBusy(true);
+    try {
+      const list = await sbGetClientes();
+      const exists = list.find((c) => slugify(c) === slugify(name));
+      if (!exists) await sbUpsertStock(CLIENTES_SLUG, list.concat([name]).sort((a, b) => a.localeCompare(b, 'es')), '');
+      setBusy(false);
+      onPick(exists || name);
+    } catch (err) {
+      setBusy(false);
+      setError('No se pudo guardar el cliente. Revisa la conexión.');
+    }
+  };
+
+  return (
+    <div className="card">
+      <h2>Elegir cliente</h2>
+      <p className="muted" style={{ marginTop: -8 }}>Cada cliente tiene su propio stock cedido, sus lecturas y su informe.</p>
+      {error && <div className="error-box">{error}</div>}
+      {clientes === null && <div className="muted">Cargando clientes…</div>}
+      {clientes && clientes.length === 0 && <div className="muted">Todavía no hay clientes. Crea el primero abajo.</div>}
+      {clientes && clientes.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
+          {clientes.map((c) => (
+            <button key={c} className={c === current ? 'btn btn-primary' : 'btn btn-secondary'} onClick={() => onPick(c)}>{c}</button>
+          ))}
+        </div>
+      )}
+      <div className="field" style={{ maxWidth: 420, marginTop: 8 }}>
+        <label htmlFor="new-cli">Nuevo cliente</label>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <input id="new-cli" value={nuevo} onChange={(e) => setNuevo(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') add(); }} placeholder="Nombre del cliente" />
+          <button className="btn btn-primary" onClick={add} disabled={busy || !nuevo.trim()}>{busy ? '…' : 'Añadir'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsTab({ user, centro, setCentro, isAdmin, isComercial, onChangeCliente, onReset, onLogout }) {
+  const lugar = isComercial ? 'cliente' : 'centro';
   return (
     <div className="card">
       <h2>Ajustes</h2>
       <div className="field" style={{ maxWidth: 340 }}>
-        <label htmlFor={isAdmin ? 'set-centro' : undefined}>{isAdmin ? 'Centro a visualizar' : 'Centro asignado'}</label>
+        <label htmlFor={isAdmin ? 'set-centro' : undefined}>{isAdmin ? 'Centro a visualizar' : (isComercial ? 'Cliente' : 'Centro asignado')}</label>
         {isAdmin ? (
           <select id="set-centro" value={centro} onChange={(e) => setCentro(e.target.value)}>
             {CENTROS.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -898,17 +1009,19 @@ function SettingsTab({ user, centro, setCentro, isAdmin, onReset, onLogout }) {
             {centro}
           </div>
         )}
-        <div className="muted" style={{ fontSize: 12 }}>
-          {isAdmin ? 'Como administrador puedes consultar y editar el stock de cualquier centro.' : 'El centro viene fijado por tu usuario y no se puede cambiar.'}
-        </div>
+        {isComercial
+          ? <button className="btn btn-secondary btn-small" style={{ alignSelf: 'flex-start' }} onClick={onChangeCliente}>Cambiar de cliente</button>
+          : <div className="muted" style={{ fontSize: 12 }}>
+              {isAdmin ? 'Como administrador puedes consultar y editar el stock de cualquier centro.' : 'El centro viene fijado por tu usuario y no se puede cambiar.'}
+            </div>}
       </div>
       <p className="muted">Usuario conectado: <strong>{user.usuario}</strong>{isAdmin && <React.Fragment> &middot; <span className="badge" style={{ background: 'var(--info-bg)', color: 'var(--info-fg)' }}>ADMIN</span></React.Fragment>}</p>
       <p><span className="storage-pill on">Datos compartidos activos</span></p>
       <p className="muted" style={{ fontSize: 12.5 }}>
-        El stock teórico y las lecturas se guardan en el servidor y se ven en todos los dispositivos del mismo centro (tarda hasta {Math.round(POLL_MS / 1000)} segundos, o pulsa "Actualizar ahora" en la pestaña de stock). Si se pierde la conexión, las lecturas se guardan en el dispositivo y se suben solas al volver.
+        El stock teórico y las lecturas se guardan en el servidor y se ven en todos los dispositivos del mismo {lugar} (tarda hasta {Math.round(POLL_MS / 1000)} segundos, o pulsa "Actualizar ahora" en la pestaña de stock). Si se pierde la conexión, las lecturas se guardan en el dispositivo y se suben solas al volver.
       </p>
       <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
-        <button className="btn btn-danger" onClick={() => { if (window.confirm('Se borrará el stock teórico y TODAS las lecturas de ' + centro + ' en todos los dispositivos. ¿Continuar?')) onReset(); }}>Borrar stock teórico y lecturas de este centro</button>
+        <button className="btn btn-danger" onClick={() => { if (window.confirm('Se borrará el stock teórico y TODAS las lecturas de ' + centro + ' en todos los dispositivos. ¿Continuar?')) onReset(); }}>Borrar stock teórico y lecturas de este {lugar}</button>
         <button className="btn btn-outline" onClick={onLogout}>Cerrar sesión</button>
       </div>
     </div>
@@ -995,8 +1108,11 @@ function App() {
     sbDeleteUser(usuario).then(() => setUsersError('')).catch(() => setUsersError('No se pudo borrar el usuario en el servidor.'));
   }, []);
 
-  const slug = centro ? slugify(centro) : null;
   const isAdmin = user && user.role === 'admin';
+  const isComercial = user && user.role === 'comercial';
+  // Comercial: "centro" es el cliente elegido; sus datos van aparte con prefijo cli-.
+  const slug = centro ? (isComercial ? 'cli-' + slugify(centro) : slugify(centro)) : null;
+  const [pickingCliente, setPickingCliente] = useState(false);
   const [connError, setConnError] = useState('');
 
   // Lecturas: compartidas por centro en Supabase (una fila por lectura).
@@ -1103,6 +1219,8 @@ function App() {
     sbDeleteScans('centro_slug=eq.' + encodeURIComponent(slug)).catch(() => setConnError('No se pudieron borrar las lecturas en el servidor.'));
   }, [slug, pendingKey]);
 
+  const showPicker = isComercial && (pickingCliente || !centro);
+
   if (!user) {
     return <LoginScreen users={users} onLogin={(u) => {
       const nextUser = { usuario: u.usuario, role: u.role };
@@ -1120,21 +1238,24 @@ function App() {
         <img src="logo.jpg" alt="SCAITT" className="brand-logo-header" />
         <div className="subbrand" style={{ marginLeft: -2 }}>Control de Stock</div>
         <div className="user-chip" style={{ marginLeft: 18 }}>{user.usuario}</div>
-        <button className="centro-pill" onClick={() => setActiveTab('settings')}>{centro}</button>
+        <button className="centro-pill" onClick={() => (isComercial ? setPickingCliente(true) : setActiveTab('settings'))}>{centro || 'Elegir cliente'}</button>
       </div>
       <div className="tabs">
         {TABS.concat(isAdmin ? [{ id: 'users', label: 'Usuarios' }] : []).map((t) => (
-          <button key={t.id} className={activeTab === t.id ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab(t.id)}>
-            {t.label}
+          <button key={t.id} className={activeTab === t.id && !showPicker ? 'tab-btn active' : 'tab-btn'}
+            onClick={() => { setActiveTab(t.id); setPickingCliente(false); }} disabled={isComercial && !centro}>
+            {isComercial && t.id === 'settings' ? 'Ajustes / Cliente' : t.label}
           </button>
         ))}
       </div>
       <div className="content">
+        {showPicker && <ClientPicker current={centro} onPick={(c) => { setCentro(c); persistSession(user, c); setPickingCliente(false); setActiveTab('scan'); }} />}
+        {!showPicker && <React.Fragment>
         {connError && <div className="error-box">{connError}</div>}
         {usersError && activeTab === 'users' && <div className="error-box">{usersError}</div>}
-        {activeTab === 'scan' && <ScanTab scans={scans} onSave={handleSaveScan} onDeleteLast={handleDeleteLastScan} />}
-        {activeTab === 'upload' && <UploadTab stock={stock} fileName={fileName} onUpload={handleUpload} onClear={handleClearStock} onRefresh={refreshAll} />}
-        {activeTab === 'report' && <ReportTab stock={stock} scans={scans} centro={centro} usuario={user.usuario} />}
+        {activeTab === 'scan' && <ScanTab scans={scans} onSave={handleSaveScan} onDeleteLast={handleDeleteLastScan} comercial={isComercial} />}
+        {activeTab === 'upload' && <UploadTab stock={stock} fileName={fileName} onUpload={handleUpload} onClear={handleClearStock} onRefresh={refreshAll} comercial={isComercial} />}
+        {activeTab === 'report' && <ReportTab stock={stock} scans={scans} centro={centro} usuario={user.usuario} comercial={isComercial} />}
         {activeTab === 'users' && isAdmin && (
           <UsersTab
             users={users} currentUser={user.usuario}
@@ -1145,11 +1266,12 @@ function App() {
           <SettingsTab
             user={user} centro={centro}
             setCentro={(c) => { setCentro(c); persistSession(user, c); }}
-            isAdmin={isAdmin}
+            isAdmin={isAdmin} isComercial={isComercial} onChangeCliente={() => setPickingCliente(true)}
             onReset={handleResetAll}
-            onLogout={() => { setUser(null); setCentro(null); persistSession(null, null); }}
+            onLogout={() => { setUser(null); setCentro(null); setPickingCliente(false); persistSession(null, null); }}
           />
         )}
+        </React.Fragment>}
       </div>
     </React.Fragment>
   );
