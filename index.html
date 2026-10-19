@@ -190,7 +190,7 @@ async function sbUpsertStock(slug, stock, fileName) {
   }
 }
 
-const CENTROS = ['Martorell', 'Baleares', 'CIM Vallés', 'Lleida', 'Manresa'];
+const CENTROS = ['Martorell', 'Baleares', 'CIM Vallés', 'Lleida', 'Manresa', 'Montmeló'];
 
 const BASE_USERS = [
   { usuario: 'martorell', passwordHash: '87f02245ffb80847b9272b39136f10e30e6ea09a3ed5eb7aa128a354def5aaa2', centro: 'Martorell', role: 'centro' },
@@ -198,6 +198,7 @@ const BASE_USERS = [
   { usuario: 'cimvalles', passwordHash: 'e2a7c43241e680029d0522a95b306ae77298c15c1ebd16aaea3a715dd63f4a1a', centro: 'CIM Vallés', role: 'centro' },
   { usuario: 'lleida', passwordHash: '812e6803a171d3545c9c3a1ae2fb88d565f6d1138159e9cbd843b45cc3faf863', centro: 'Lleida', role: 'centro' },
   { usuario: 'manresa', passwordHash: '17a3ee434e2c9b3873684c252851c64bcb906d486d1ccf3d19c38c1b8332ead8', centro: 'Manresa', role: 'centro' },
+  { usuario: 'montmelo', passwordHash: 'b04ceeb3ab820154587d1de3769ee916b82e3cb16913beef1f0230ddef8bdaeb', centro: 'Montmeló', role: 'centro' },
   { usuario: 'comercial', passwordHash: '5b40bcefa1d0290ce7127f2e1388892f4c1f5043d41e87c6d7d1daf72d069343', centro: null, role: 'comercial' },
   { usuario: 'admin', passwordHash: '9c4a8ac7f759f78efa494345bd889a1e9a97c005733a2f173787e8cc5567b1e3', centro: null, role: 'admin' }
 ];
@@ -309,15 +310,15 @@ function computeReconciliation(stock, scans, centro, byRef) {
   const norm = (r) => Object.assign({}, r, { ubicacion: byRef ? '' : normCode(r.ubicacion), referencia: normCode(r.referencia) });
   let theo = stock.filter((r) => !r.centro || slugify(r.centro) === slug).map(norm);
   const centroScans = scans.filter((r) => slugify(r.centro || centro) === slug).map(norm);
-  if (byRef) {
-    // Una fila por referencia, sumando cantidades si aparece varias veces en el Excel.
-    const byKey = {};
-    theo.forEach((t) => {
-      if (byKey[t.referencia]) byKey[t.referencia].cantidad += t.cantidad;
-      else byKey[t.referencia] = Object.assign({}, t);
-    });
-    theo = Object.keys(byKey).map((k) => byKey[k]);
-  }
+  // Una fila por ubicación + referencia (o solo referencia en modo comercial), sumando cantidades
+  // si se repite en el Excel (p. ej. stock de varios clientes en la misma ubicación).
+  const byKey = {};
+  theo.forEach((t) => {
+    const k = t.ubicacion + '||' + t.referencia;
+    if (byKey[k]) byKey[k].cantidad += t.cantidad;
+    else byKey[k] = Object.assign({}, t);
+  });
+  theo = Object.keys(byKey).map((k) => byKey[k]);
 
   const scannedMap = {};
   centroScans.forEach((s) => {
