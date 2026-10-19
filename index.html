@@ -257,8 +257,11 @@ function slugify(s) {
     .replace(/(^-|-$)/g, '');
 }
 
+// Prefiere la columna que empieza por el texto ("Ubicación" antes que "Stock por ubicación"); si no hay, la que lo contiene.
 function findKey(row, substr) {
-  return Object.keys(row).find((k) => k.toLowerCase().indexOf(substr) !== -1);
+  const keys = Object.keys(row);
+  const norm = (k) => k.toLowerCase().trim();
+  return keys.find((k) => norm(k).indexOf(substr) === 0) || keys.find((k) => norm(k).indexOf(substr) !== -1);
 }
 
 function findKeyAny(row, substrs) {
@@ -279,7 +282,15 @@ function parseWorkbook(arrayBuffer, isCsv) {
     } catch (err) { wb = null; }
   }
   if (!wb) wb = XLSX.read(arrayBuffer, { type: 'array' });
-  const ws = wb.Sheets[wb.SheetNames[0]];
+  // Primera hoja con datos válidos (algunos exportes, como Sage X3, ponen antes una hoja técnica).
+  for (let i = 0; i < wb.SheetNames.length; i++) {
+    const rows = parseSheet(wb.Sheets[wb.SheetNames[i]]);
+    if (rows.length) return rows;
+  }
+  return [];
+}
+
+function parseSheet(ws) {
   const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
   return raw
     .map((row) => {
@@ -287,7 +298,7 @@ function parseWorkbook(arrayBuffer, isCsv) {
       const kUbic = findKey(row, 'ubicac');
       const kRef = findKey(row, 'referenc');
       const kDesc = findKey(row, 'descrip');
-      const kCant = findKeyAny(row, ['cantidad', 'stock', 'piezas', 'existenc', 'uds', 'unidades', 'cant.']);
+      const kCant = findKeyAny(row, ['cantidad', 'stock por ubic', 'stock', 'piezas', 'existenc', 'uds', 'unidades', 'cant.']);
       return {
         centro: kCentro ? String(row[kCentro]).trim() : '',
         ubicacion: kUbic ? String(row[kUbic]).trim() : '',
