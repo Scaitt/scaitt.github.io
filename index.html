@@ -482,7 +482,13 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
       setSaveError(comercial ? 'Indica la referencia antes de guardar.' : 'Indica ubicación y referencia antes de guardar.');
       return;
     }
-    const qty = cantidad.trim() === '' ? 1 : (parseFloat(String(cantidad).replace(',', '.')) || 1);
+    // Vacío = 1 unidad; 0 es una cantidad válida (se ha comprobado y no hay).
+    const parsed = parseFloat(String(cantidad).replace(',', '.'));
+    if (cantidad.trim() !== '' && (isNaN(parsed) || parsed < 0)) {
+      setSaveError('La cantidad no es válida.');
+      return;
+    }
+    const qty = cantidad.trim() === '' ? 1 : parsed;
     setSaveError('');
     onSave({ ubicacion: comercial ? '' : ubicacion.trim(), referencia: referencia.trim(), cantidad: qty });
     setUbicacion('');
@@ -500,7 +506,7 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
 
   const stepQty = (d) => {
     const cur = cantidad.trim() === '' ? 1 : (parseFloat(cantidad.replace(',', '.')) || 0);
-    setCantidad(String(Math.max(1, cur + d)));
+    setCantidad(String(Math.max(0, cur + d)));
   };
 
   const recent = scans.slice(0, 5);
