@@ -136,10 +136,19 @@ async function sbGetStock(slug) {
   return rows[0] || null;
 }
 
+// Supabase devuelve como máximo 1.000 filas por petición: se leen las lecturas por páginas
+// (orden estable ts + id para no repetir ni saltar filas entre páginas).
+const SCANS_PAGE = 1000;
 async function sbGetScans(slug) {
-  const res = await fetch(SB_URL + '/rest/v1/lecturas?centro_slug=eq.' + encodeURIComponent(slug) + '&select=*&order=ts.desc', { headers: SB_HEADERS });
-  if (!res.ok) throw new Error('Supabase read failed: ' + res.status);
-  return res.json();
+  const all = [];
+  for (let offset = 0; ; offset += SCANS_PAGE) {
+    const res = await fetch(SB_URL + '/rest/v1/lecturas?centro_slug=eq.' + encodeURIComponent(slug) +
+      '&select=*&order=ts.desc,id.desc&limit=' + SCANS_PAGE + '&offset=' + offset, { headers: SB_HEADERS });
+    if (!res.ok) throw new Error('Supabase read failed: ' + res.status);
+    const page = await res.json();
+    all.push.apply(all, page);
+    if (page.length < SCANS_PAGE) return all;
+  }
 }
 
 async function sbInsertScans(rows) {
