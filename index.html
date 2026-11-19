@@ -80,6 +80,7 @@
   .scan-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
   .keypad.abc { grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .keypad.four { grid-template-columns: repeat(4, 1fr); }
   .keypad.abc .btn { min-height: 44px; font-size: 16px; }
   .keypad-wrap { max-width: 460px; margin-top: 16px; }
   .keypad-target { font-size: 13px; margin-bottom: 6px; }
@@ -488,9 +489,9 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
       setSaveError(comercial ? 'Indica la referencia antes de guardar.' : 'Indica ubicación y referencia antes de guardar.');
       return;
     }
-    // Vacío = 1 unidad; 0 es una cantidad válida (se ha comprobado y no hay).
+    // Vacío = 1 unidad; 0 (se ha comprobado y no hay) y los negativos son cantidades válidas.
     const parsed = parseFloat(String(cantidad).replace(',', '.'));
-    if (cantidad.trim() !== '' && (isNaN(parsed) || parsed < 0)) {
+    if (cantidad.trim() !== '' && isNaN(parsed)) {
       setSaveError('La cantidad no es válida.');
       return;
     }
@@ -529,7 +530,11 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
 
   const stepQty = (d) => {
     const cur = cantidad.trim() === '' ? 1 : (parseFloat(cantidad.replace(',', '.')) || 0);
-    setCantidad(String(Math.max(0, cur + d)));
+    setCantidad(String(cur + d).replace('.', ','));
+  };
+
+  const toggleSign = () => {
+    setCantidad((c) => (c.charAt(0) === '-' ? c.slice(1) : '-' + c));
   };
 
   const recent = scans.slice(0, 5);
@@ -583,26 +588,28 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
         </div>
         <div className="keypad-wrap" onMouseDown={(e) => e.preventDefault()}>
           <div className="keypad-target">Teclado: <strong>{fields[target].label}</strong> <span className="muted">(toca un campo para cambiar)</span></div>
-          {!abc ? (
+          {target === 'cant' ? (
+            <div className="keypad four">
+              {['7', '8', '9'].map((k) => <button key={k} type="button" className="btn btn-outline" onClick={() => typeKey(k)}>{k}</button>)}
+              <button type="button" className="btn btn-outline" onClick={backKey}>⌫</button>
+              {['4', '5', '6'].map((k) => <button key={k} type="button" className="btn btn-outline" onClick={() => typeKey(k)}>{k}</button>)}
+              <button type="button" className="btn btn-outline" onClick={clearKey}>C</button>
+              {['1', '2', '3'].map((k) => <button key={k} type="button" className="btn btn-outline" onClick={() => typeKey(k)}>{k}</button>)}
+              <button type="button" className="btn btn-outline" onClick={() => stepQty(-1)}>−1</button>
+              <button type="button" className="btn btn-outline" onClick={toggleSign}>±</button>
+              <button type="button" className="btn btn-outline" onClick={() => typeKey('0')}>0</button>
+              <button type="button" className="btn btn-outline" onClick={() => typeKey(',')}>,</button>
+              <button type="button" className="btn btn-outline" onClick={() => stepQty(1)}>+1</button>
+            </div>
+          ) : !abc ? (
             <div className="keypad">
-              {target === 'cant' ? (
-                <React.Fragment>
-                  <button type="button" className="btn btn-outline" onClick={() => stepQty(-1)}>−</button>
-                  <button type="button" className="btn btn-outline" onClick={() => stepQty(1)}>+</button>
-                </React.Fragment>
-              ) : (
-                <React.Fragment>
-                  <button type="button" className="btn btn-outline" onClick={() => setAbc(true)}>ABC</button>
-                  <button type="button" className="btn btn-outline" onClick={() => typeKey('-')}>-</button>
-                </React.Fragment>
-              )}
+              <button type="button" className="btn btn-outline" onClick={() => setAbc(true)}>ABC</button>
+              <button type="button" className="btn btn-outline" onClick={() => typeKey('-')}>-</button>
               <button type="button" className="btn btn-outline" onClick={clearKey}>C</button>
               {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((k) => (
                 <button key={k} type="button" className="btn btn-outline" onClick={() => typeKey(k)}>{k}</button>
               ))}
-              {target === 'cant'
-                ? <button type="button" className="btn btn-outline" onClick={() => typeKey(',')}>,</button>
-                : <button type="button" className="btn btn-outline" onClick={nextKey}>Sig. ↵</button>}
+              <button type="button" className="btn btn-outline" onClick={nextKey}>Sig. ↵</button>
               <button type="button" className="btn btn-outline" onClick={() => typeKey('0')}>0</button>
               <button type="button" className="btn btn-outline" onClick={backKey}>⌫</button>
             </div>
