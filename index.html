@@ -79,6 +79,11 @@
   .scan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .scan-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
+  .keypad.abc { grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .keypad.abc .btn { min-height: 44px; font-size: 16px; }
+  .keypad-wrap { max-width: 460px; margin-top: 16px; }
+  .keypad-target { font-size: 13px; margin-bottom: 6px; }
+  input.kb-target { border-color: var(--accent); }
   .keypad .btn { min-height: 46px; padding: 0; font-size: 20px; font-weight: 700; justify-content: center; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
@@ -447,7 +452,8 @@ function LoginScreen({ users, onLogin }) {
 }
 
 function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
-  // comercial: sin ubicación (stock cedido a clientes). Todos: teclado numérico en pantalla (iOS oculta el del móvil con la pistola conectada).
+  // comercial: sin ubicación (stock cedido a clientes). Todos: teclado en pantalla (iOS oculta el del móvil con la pistola
+  // conectada); escribe en el campo seleccionado, con letras para ubicación y referencia.
   const [ubicacion, setUbicacion] = useState('');
   const [referencia, setReferencia] = useState('');
   const [cantidad, setCantidad] = useState('');
@@ -504,6 +510,23 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
     }, 0);
   };
 
+  const [target, setTarget] = useState('cant');
+  const [abc, setAbc] = useState(false);
+  const fields = {
+    ubi: { set: setUbicacion, ref: refUbicacion, label: 'Ubicación' },
+    ref: { set: setReferencia, ref: refReferencia, label: 'Referencia' },
+    cant: { set: setCantidad, ref: refCantidad, label: 'Cantidad' }
+  };
+  const order = comercial ? ['ref', 'cant'] : ['ubi', 'ref', 'cant'];
+  const pick = (t) => { setTarget(t); if (t === 'cant') setAbc(false); };
+  const typeKey = (k) => fields[target].set((c) => c + k);
+  const backKey = () => fields[target].set((c) => c.slice(0, -1));
+  const clearKey = () => fields[target].set('');
+  const nextKey = () => {
+    const next = order[order.indexOf(target) + 1];
+    if (next && fields[next].ref.current) fields[next].ref.current.focus();
+  };
+
   const stepQty = (d) => {
     const cur = cantidad.trim() === '' ? 1 : (parseFloat(cantidad.replace(',', '.')) || 0);
     setCantidad(String(Math.max(0, cur + d)));
@@ -518,8 +541,9 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
         <div className={comercial ? 'scan-grid two' : 'scan-grid'}>
           {!comercial && <div className="field">
             <label htmlFor="in-ubi">1. Ubicación</label>
-            <input id="in-ubi" ref={refUbicacion} value={ubicacion}
-              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
+            <input id="in-ubi" ref={refUbicacion} value={ubicacion} className={target === 'ubi' ? 'kb-target' : undefined}
+              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" inputMode="none"
+              onFocus={() => pick('ubi')}
               onChange={(e) => setUbicacion(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -533,8 +557,9 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
           </div>}
           <div className="field">
             <label htmlFor="in-ref">{comercial ? '1.' : '2.'} Referencia</label>
-            <input id="in-ref" ref={refReferencia} value={referencia}
-              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
+            <input id="in-ref" ref={refReferencia} value={referencia} className={target === 'ref' ? 'kb-target' : undefined}
+              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" inputMode="none"
+              onFocus={() => pick('ref')}
               onChange={(e) => setReferencia(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -548,21 +573,50 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
           </div>
           <div className="field">
             <label htmlFor="in-cant">{comercial ? '2.' : '3.'} Cantidad</label>
-            <input id="in-cant" ref={refCantidad} value={cantidad}
+            <input id="in-cant" ref={refCantidad} value={cantidad} className={target === 'cant' ? 'kb-target' : undefined}
               autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" inputMode="none"
+              onFocus={() => pick('cant')}
               onChange={(e) => setCantidad(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); } }}
               placeholder="1" />
-            <div className="keypad" onMouseDown={(e) => e.preventDefault()}>
-              <button type="button" className="btn btn-outline" onClick={() => stepQty(-1)}>−</button>
-              <button type="button" className="btn btn-outline" onClick={() => stepQty(1)}>+</button>
-              <button type="button" className="btn btn-outline" onClick={() => setCantidad('')}>C</button>
-              {['7', '8', '9', '4', '5', '6', '1', '2', '3', ',', '0'].map((k) => (
-                <button key={k} type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c + k)}>{k}</button>
-              ))}
-              <button type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c.slice(0, -1))}>⌫</button>
-            </div>
           </div>
+        </div>
+        <div className="keypad-wrap" onMouseDown={(e) => e.preventDefault()}>
+          <div className="keypad-target">Teclado: <strong>{fields[target].label}</strong> <span className="muted">(toca un campo para cambiar)</span></div>
+          {!abc ? (
+            <div className="keypad">
+              {target === 'cant' ? (
+                <React.Fragment>
+                  <button type="button" className="btn btn-outline" onClick={() => stepQty(-1)}>−</button>
+                  <button type="button" className="btn btn-outline" onClick={() => stepQty(1)}>+</button>
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  <button type="button" className="btn btn-outline" onClick={() => setAbc(true)}>ABC</button>
+                  <button type="button" className="btn btn-outline" onClick={() => typeKey('-')}>-</button>
+                </React.Fragment>
+              )}
+              <button type="button" className="btn btn-outline" onClick={clearKey}>C</button>
+              {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((k) => (
+                <button key={k} type="button" className="btn btn-outline" onClick={() => typeKey(k)}>{k}</button>
+              ))}
+              {target === 'cant'
+                ? <button type="button" className="btn btn-outline" onClick={() => typeKey(',')}>,</button>
+                : <button type="button" className="btn btn-outline" onClick={nextKey}>Sig. ↵</button>}
+              <button type="button" className="btn btn-outline" onClick={() => typeKey('0')}>0</button>
+              <button type="button" className="btn btn-outline" onClick={backKey}>⌫</button>
+            </div>
+          ) : (
+            <div className="keypad abc">
+              {'QWERTYUIOPASDFGHJKLZXCVBNM'.split('').concat(['-', '/', '.']).map((k) => (
+                <button key={k} type="button" className="btn btn-outline" onClick={() => typeKey(k)}>{k}</button>
+              ))}
+              <button type="button" className="btn btn-outline" onClick={() => setAbc(false)}>123</button>
+              <button type="button" className="btn btn-outline" onClick={backKey}>⌫</button>
+              <button type="button" className="btn btn-outline" onClick={clearKey}>C</button>
+              <button type="button" className="btn btn-outline" onClick={nextKey}>↵</button>
+            </div>
+          )}
         </div>
         {saveError && <div className="error-box" style={{ marginTop: 16 }}>{saveError}</div>}
         <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap', alignItems: 'center' }}>
