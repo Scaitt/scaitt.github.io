@@ -447,7 +447,7 @@ function LoginScreen({ users, onLogin }) {
 }
 
 function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
-  // comercial: sin ubicación (stock cedido a clientes) y con teclado numérico en pantalla.
+  // comercial: sin ubicación (stock cedido a clientes). Todos: teclado numérico en pantalla (iOS oculta el del móvil con la pistola conectada).
   const [ubicacion, setUbicacion] = useState('');
   const [referencia, setReferencia] = useState('');
   const [cantidad, setCantidad] = useState('');
@@ -549,21 +549,19 @@ function ScanTab({ scans, onSave, onDeleteLast, comercial }) {
           <div className="field">
             <label htmlFor="in-cant">{comercial ? '2.' : '3.'} Cantidad</label>
             <input id="in-cant" ref={refCantidad} value={cantidad}
-              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" inputMode={comercial ? 'none' : 'decimal'}
+              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" inputMode="none"
               onChange={(e) => setCantidad(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); } }}
               placeholder="1" />
-            {comercial && (
-              <div className="keypad" onMouseDown={(e) => e.preventDefault()}>
-                <button type="button" className="btn btn-outline" onClick={() => stepQty(-1)}>−</button>
-                <button type="button" className="btn btn-outline" onClick={() => stepQty(1)}>+</button>
-                <button type="button" className="btn btn-outline" onClick={() => setCantidad('')}>C</button>
-                {['7', '8', '9', '4', '5', '6', '1', '2', '3', ',', '0'].map((k) => (
-                  <button key={k} type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c + k)}>{k}</button>
-                ))}
-                <button type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c.slice(0, -1))}>⌫</button>
-              </div>
-            )}
+            <div className="keypad" onMouseDown={(e) => e.preventDefault()}>
+              <button type="button" className="btn btn-outline" onClick={() => stepQty(-1)}>−</button>
+              <button type="button" className="btn btn-outline" onClick={() => stepQty(1)}>+</button>
+              <button type="button" className="btn btn-outline" onClick={() => setCantidad('')}>C</button>
+              {['7', '8', '9', '4', '5', '6', '1', '2', '3', ',', '0'].map((k) => (
+                <button key={k} type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c + k)}>{k}</button>
+              ))}
+              <button type="button" className="btn btn-outline" onClick={() => setCantidad((c) => c.slice(0, -1))}>⌫</button>
+            </div>
           </div>
         </div>
         {saveError && <div className="error-box" style={{ marginTop: 16 }}>{saveError}</div>}
